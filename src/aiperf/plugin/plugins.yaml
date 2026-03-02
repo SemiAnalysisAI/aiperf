@@ -189,6 +189,21 @@ service_manager:
 # One-to-one mapping: exactly one endpoint is selected based on endpoint_type config.
 # =============================================================================
 endpoint:
+  anthropic_messages:
+    class: aiperf.endpoints.anthropic_messages:AnthropicMessagesEndpoint
+    description: |
+      Anthropic Messages endpoint. Supports text content, tool use, extended
+      thinking, and both streaming and non-streaming responses via /v1/messages.
+      Uses x-api-key authentication and Anthropic SSE streaming format.
+    metadata:
+      endpoint_path: /v1/messages
+      service_kind: anthropic
+      supports_streaming: true
+      produces_tokens: true
+      tokenizes_input: true
+      supports_images: true
+      metrics_title: LLM Metrics
+
   chat:
     class: aiperf.endpoints.openai_chat:ChatEndpoint
     description: |
