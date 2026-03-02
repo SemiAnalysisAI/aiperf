@@ -39,6 +39,7 @@ from aiperf_mock_server.metrics_utils import (
     track_request,
 )
 from aiperf_mock_server.models import (
+    AnthropicMessagesRequest,
     ChatCompletionRequest,
     CohereRerankRequest,
     CompletionRequest,
@@ -53,6 +54,7 @@ from aiperf_mock_server.models import (
 from aiperf_mock_server.utils import (
     RequestCtx,
     make_ctx,
+    stream_anthropic_messages,
     stream_chat_completion,
     stream_text_completion,
     stream_tgi_completion,
@@ -251,6 +253,78 @@ async def _chat_stream_wrapper(
     """Wrapper for streaming that records metrics after completion."""
     async with async_track_llm_request(ctx, req.model, endpoint):
         async for chunk in stream_chat_completion(ctx, endpoint, req.include_usage):
+            yield chunk
+
+
+# ============================================================================
+# Anthropic Messages
+# ============================================================================
+
+
+def _build_anthropic_response_data(ctx: RequestCtx) -> dict[str, Any]:
+    """Build non-streaming Anthropic Messages response data."""
+    content: list[dict[str, Any]] = []
+
+    if ctx.reasoning_content:
+        content.append(
+            {
+                "type": "thinking",
+                "thinking": ctx.reasoning_content,
+                "signature": "mock-signature",
+            }
+        )
+
+    content.append({"type": "text", "text": ctx.content})
+
+    return {
+        "id": ctx.request_id,
+        "type": "message",
+        "role": "assistant",
+        "content": content,
+        "model": ctx.model,
+        "stop_reason": ctx.finish_reason,
+        "stop_sequence": None,
+        "usage": {
+            "input_tokens": ctx.usage["prompt_tokens"],
+            "output_tokens": ctx.usage["completion_tokens"],
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+        },
+    }
+
+
+@app.post("/v1/messages", response_model=None)
+@with_error_injection
+async def anthropic_messages(
+    req: AnthropicMessagesRequest,
+    request: Request,
+) -> ORJSONResponse | StreamingResponse:
+    """Anthropic Messages endpoint."""
+    endpoint = "/v1/messages"
+    init_model_config(req.model)
+    ctx = make_ctx(req, endpoint, request.state.start_time)
+
+    if req.stream:
+        STREAMING_REQUESTS_TOTAL.labels(endpoint=endpoint, model=req.model).inc()
+        return StreamingResponse(
+            _anthropic_stream_wrapper(ctx, req, endpoint),
+            media_type="text/event-stream",
+        )
+
+    with track_llm_request(ctx, req.model, endpoint):
+        await ctx.latency_sim.wait_for_tokens(len(ctx.tokens))
+        response_data = _build_anthropic_response_data(ctx)
+        response_bytes = len(orjson.dumps(response_data))
+        record_request_bytes(endpoint, len(ctx.tokenized.text), response_bytes)
+        return ORJSONResponse(response_data)
+
+
+async def _anthropic_stream_wrapper(
+    ctx: RequestCtx, req: AnthropicMessagesRequest, endpoint: str
+):
+    """Wrapper for Anthropic streaming that records metrics after completion."""
+    async with async_track_llm_request(ctx, req.model, endpoint):
+        async for chunk in stream_anthropic_messages(ctx, endpoint):
             yield chunk
 
 

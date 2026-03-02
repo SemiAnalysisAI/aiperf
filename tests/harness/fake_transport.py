@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, TypeAlias
 
 import orjson
 from aiperf_mock_server.app import (
+    _build_anthropic_response_data,
     _build_chat_response_data,
     _build_cohere_ranking_response_data,
     _build_completion_response_data,
@@ -33,6 +34,7 @@ from aiperf_mock_server.app import (
 )
 from aiperf_mock_server.config import MockServerConfig
 from aiperf_mock_server.models import (
+    AnthropicMessagesRequest,
     ChatCompletionRequest,
     CohereRerankRequest,
     CompletionRequest,
@@ -47,6 +49,7 @@ from aiperf_mock_server.models import (
 from aiperf_mock_server.utils import (
     RequestCtx,
     make_ctx,
+    stream_anthropic_messages,
     stream_chat_completion,
     stream_text_completion,
     stream_tgi_completion,
@@ -375,6 +378,16 @@ class FakeTransport(BaseTransport):
                     self._do_simple,
                     build_response=_build_solido_rag_response_data,
                 )
+            case EndpointType.ANTHROPIC_MESSAGES:
+                return await self._dispatch(
+                    payload,
+                    endpoint_type,
+                    AnthropicMessagesRequest,
+                    self._do_anthropic,
+                    stream_fn=_stream_anthropic_compat,
+                    build_response=_build_anthropic_response_data,
+                    first_token_callback=first_token_callback,
+                )
             case _:
                 raise ValueError(f"Unsupported endpoint type: {endpoint_type}")
 
@@ -409,6 +422,17 @@ class FakeTransport(BaseTransport):
             inp.start_timestamp_ns,
             inp.build_response(inp.ctx),
         )
+
+    async def _do_anthropic(self, inp: HandlerInput) -> RequestRecord:
+        """Handle Anthropic Messages requests (streaming and non-streaming)."""
+        if self.model_endpoint.endpoint.streaming:
+            stream = inp.stream_fn(inp.ctx, inp.endpoint_path, False)
+            return await self._stream_to_record(
+                stream, inp.start_perf_ns, inp.first_token_callback
+            )
+
+        await inp.ctx.latency_sim.wait_for_tokens(len(inp.ctx.tokens))
+        return self._make_json_record(inp.start_perf_ns, inp.build_response(inp.ctx))
 
     async def _do_embedding(self, inp: HandlerInput) -> RequestRecord:
         """Handle embedding requests."""
@@ -454,6 +478,14 @@ class FakeTransport(BaseTransport):
             start_timestamp_ns,
             _build_image_retrieval_response_data(req),
         )
+
+
+async def _stream_anthropic_compat(
+    ctx: RequestCtx, endpoint: str, _include_usage: bool
+) -> AsyncGenerator[bytes, None]:
+    """Adapter to match the 3-arg StreamFn signature for Anthropic streaming."""
+    async for chunk in stream_anthropic_messages(ctx, endpoint):
+        yield chunk
 
 
 # =============================================================================

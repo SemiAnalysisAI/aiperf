@@ -24,6 +24,7 @@ from aiperf_mock_server.metrics_utils import (
     record_ttft,
 )
 from aiperf_mock_server.models import (
+    AnthropicMessagesRequest,
     ChatCompletionRequest,
     CohereRerankRequest,
     CompletionRequest,
@@ -217,6 +218,8 @@ def _create_request_id(request: RequestT) -> str:
             return f"img-{uuid.uuid4()}"
         case SolidoRAGRequest():
             return f"rag-{uuid.uuid4()}"
+        case AnthropicMessagesRequest():
+            return f"msg_{uuid.uuid4()}"
         case _:
             raise ValueError(f"Invalid request type: {type(request)}")
 
@@ -363,3 +366,119 @@ async def stream_tgi_completion(
             chunk["generated_text"] = ctx.content
 
         yield _sse(chunk)
+
+
+def _anthropic_sse(event_type: str, data: dict[str, Any]) -> bytes:
+    """Format data as Anthropic SSE event bytes with event type."""
+    return b"event: " + event_type.encode() + b"\ndata: " + orjson.dumps(data) + b"\n\n"
+
+
+async def stream_anthropic_messages(
+    ctx: RequestCtx, endpoint: str
+) -> AsyncGenerator[bytes, None]:
+    """Stream Anthropic Messages tokens as SSE events."""
+    has_thinking = bool(ctx.reasoning_content_tokens)
+
+    # message_start with input_tokens usage
+    yield _anthropic_sse(
+        "message_start",
+        {
+            "type": "message_start",
+            "message": {
+                "id": ctx.request_id,
+                "type": "message",
+                "role": "assistant",
+                "content": [],
+                "model": ctx.model,
+                "stop_reason": None,
+                "stop_sequence": None,
+                "usage": {
+                    "input_tokens": ctx.usage["prompt_tokens"],
+                    "output_tokens": 0,
+                },
+            },
+        },
+    )
+
+    yield _anthropic_sse("ping", {"type": "ping"})
+
+    block_index = 0
+
+    # Thinking blocks (if any)
+    if has_thinking:
+        yield _anthropic_sse(
+            "content_block_start",
+            {
+                "type": "content_block_start",
+                "index": block_index,
+                "content_block": {"type": "thinking", "thinking": ""},
+            },
+        )
+
+        for token in ctx.reasoning_content_tokens:
+            await ctx.latency_sim.wait_for_next_token()
+            record_streamed_token(endpoint, ctx.model)
+            yield _anthropic_sse(
+                "content_block_delta",
+                {
+                    "type": "content_block_delta",
+                    "index": block_index,
+                    "delta": {"type": "thinking_delta", "thinking": token},
+                },
+            )
+
+        # Signature delta
+        yield _anthropic_sse(
+            "content_block_delta",
+            {
+                "type": "content_block_delta",
+                "index": block_index,
+                "delta": {"type": "signature_delta", "signature": "mock-signature"},
+            },
+        )
+
+        yield _anthropic_sse(
+            "content_block_stop",
+            {"type": "content_block_stop", "index": block_index},
+        )
+        block_index += 1
+
+    # Text block
+    yield _anthropic_sse(
+        "content_block_start",
+        {
+            "type": "content_block_start",
+            "index": block_index,
+            "content_block": {"type": "text", "text": ""},
+        },
+    )
+
+    for token in ctx.tokens:
+        await ctx.latency_sim.wait_for_next_token()
+        record_streamed_token(endpoint, ctx.model)
+        yield _anthropic_sse(
+            "content_block_delta",
+            {
+                "type": "content_block_delta",
+                "index": block_index,
+                "delta": {"type": "text_delta", "text": token},
+            },
+        )
+
+    yield _anthropic_sse(
+        "content_block_stop",
+        {"type": "content_block_stop", "index": block_index},
+    )
+
+    # message_delta with output_tokens
+    output_tokens = ctx.usage["completion_tokens"]
+    yield _anthropic_sse(
+        "message_delta",
+        {
+            "type": "message_delta",
+            "delta": {"stop_reason": ctx.finish_reason, "stop_sequence": None},
+            "usage": {"output_tokens": output_tokens},
+        },
+    )
+
+    yield _anthropic_sse("message_stop", {"type": "message_stop"})
