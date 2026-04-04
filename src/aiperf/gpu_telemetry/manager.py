@@ -203,6 +203,17 @@ class GPUTelemetryManager(BaseComponentService):
                 self._collectors[PYNVML_SOURCE_IDENTIFIER] = collector
                 self._collector_id_to_url[collector_id] = PYNVML_SOURCE_IDENTIFIER
                 self.debug("GPU Telemetry: pynvml collector configured successfully")
+
+                self.info("GPU Telemetry: Capturing baseline metrics...")
+                try:
+                    await collector.initialize()
+                    await collector.collect_and_process_metrics()
+                    self.info("GPU Telemetry: Baseline captured from pynvml")
+                except Exception as e:  # noqa: BLE001 - fault-tolerant telemetry
+                    self.warning(
+                        f"GPU Telemetry: Failed to capture baseline from pynvml: {e}"
+                    )
+
                 await self._send_telemetry_status(
                     enabled=True,
                     reason=None,
@@ -286,7 +297,7 @@ class GPUTelemetryManager(BaseComponentService):
             try:
                 await collector.initialize()
                 await collector.collect_and_process_metrics()
-                self.debug(f"GPU Telemetry: Captured baseline from {dcgm_url}")
+                self.info(f"GPU Telemetry: Baseline captured from {dcgm_url}")
             except Exception as e:
                 self.warning(
                     f"GPU Telemetry: Failed to capture baseline from {dcgm_url}: {e}"
@@ -317,7 +328,6 @@ class GPUTelemetryManager(BaseComponentService):
         started_count = 0
         for source_url, collector in self._collectors.items():
             try:
-                await collector.initialize()
                 await collector.start()
                 started_count += 1
             except Exception as e:  # noqa: BLE001 - fault-tolerant telemetry

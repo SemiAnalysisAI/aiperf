@@ -51,6 +51,7 @@ from aiperf.common.models import (
     TelemetryRecord,
     WorkerProcessingStats,
 )
+from aiperf.common.models.server_metrics_models import TimeRangeFilter
 from aiperf.common.utils import yield_to_event_loop
 from aiperf.credit.messages import (
     CreditPhaseCompleteMessage,
@@ -616,6 +617,20 @@ class RecordsManager(PullClientMixin, BaseComponentService):
                 error_results.append(ErrorDetails.from_exception(result))
 
         phase_stats = self._records_tracker.create_stats_for_phase(phase)
+
+        if self._gpu_telemetry_accumulator:
+            time_filter = TimeRangeFilter(
+                start_ns=phase_stats.start_ns,
+                end_ns=phase_stats.requests_end_ns,
+            )
+            efficiency_metrics = (
+                self._gpu_telemetry_accumulator.compute_efficiency_metrics(
+                    metric_results=records_results,
+                    time_filter=time_filter,
+                )
+            )
+            records_results.extend(efficiency_metrics)
+
         result = ProcessRecordsResult(
             results=ProfileResults(
                 records=records_results,

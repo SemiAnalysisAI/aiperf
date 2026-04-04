@@ -319,9 +319,9 @@ class PyNVMLTelemetryCollector(AIPerfLifecycleMixin):
         Runs continuously during collector's RUNNING state, triggering a metrics
         collection every collection_interval seconds.
         """
-        await self._collect_and_process_metrics()
+        await self.collect_and_process_metrics()
 
-    async def _collect_and_process_metrics(self) -> None:
+    async def collect_and_process_metrics(self) -> None:
         """Collect metrics from all GPUs and send via callback.
 
         Gathers current metrics from all discovered GPUs using NVML APIs,
