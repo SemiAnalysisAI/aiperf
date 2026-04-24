@@ -436,6 +436,76 @@ class TestSyntheticDatasetComposer:
         text_payload = turn.texts[0]
         assert text_payload.contents == ["User message"]  # No prefix
 
+    @patch("aiperf.dataset.generator.prompt.PromptGenerator.get_random_prefix_prompt")
+    @patch("aiperf.dataset.generator.prompt.PromptGenerator.generate")
+    def test_generate_text_payloads_prefix_uses_remaining_isl_budget(
+        self, mock_generate, mock_prefix, mock_tokenizer
+    ):
+        """Prefix is carved out of ISL: user content = max(1, isl - prefix_len)."""
+        mock_generate.return_value = "user content"
+        mock_prefix.return_value = "shared prefix"
+
+        config = UserConfig(
+            endpoint=EndpointConfig(model_names=["test-model"]),
+            input=InputConfig(
+                conversation=ConversationConfig(num_dataset_entries=1),
+                prompt=PromptConfig(
+                    input_tokens=InputTokensConfig(mean=100, stddev=0),
+                    prefix_prompt=PrefixPromptConfig(pool_size=3, length=30),
+                ),
+            ),
+        )
+        composer = SyntheticDatasetComposer(config, mock_tokenizer)
+
+        turn = Turn()
+        text = composer._generate_text_payloads(turn, is_first=True)
+
+        mock_generate.assert_called_once_with(mean=70, stddev=0)
+        assert text.contents == ["shared prefix user content"]
+
+    @patch("aiperf.dataset.generator.prompt.PromptGenerator.get_random_prefix_prompt")
+    @patch("aiperf.dataset.generator.prompt.PromptGenerator.generate")
+    def test_generate_text_payloads_prefix_exceeds_isl_clamps_to_one(
+        self, mock_generate, mock_prefix, mock_tokenizer
+    ):
+        """When prefix_length >= isl, user content is clamped to 1 token."""
+        mock_generate.return_value = "x"
+        mock_prefix.return_value = "huge prefix"
+
+        config = UserConfig(
+            endpoint=EndpointConfig(model_names=["test-model"]),
+            input=InputConfig(
+                conversation=ConversationConfig(num_dataset_entries=1),
+                prompt=PromptConfig(
+                    input_tokens=InputTokensConfig(mean=10, stddev=0),
+                    prefix_prompt=PrefixPromptConfig(pool_size=1, length=50),
+                ),
+            ),
+        )
+        composer = SyntheticDatasetComposer(config, mock_tokenizer)
+
+        turn = Turn()
+        text = composer._generate_text_payloads(turn, is_first=True)
+
+        mock_generate.assert_called_once_with(mean=1, stddev=0)
+        assert text.contents == ["huge prefix x"]
+
+    @patch("aiperf.dataset.generator.prompt.PromptGenerator.generate")
+    def test_generate_text_payloads_no_prefix_uses_full_isl(
+        self, mock_generate, synthetic_config, mock_tokenizer
+    ):
+        """Without prefix, generate() is called with the full ISL mean."""
+        mock_generate.return_value = "content"
+        synthetic_config.input.prompt.input_tokens.mean = 200
+        synthetic_config.input.prompt.input_tokens.stddev = 0
+
+        composer = SyntheticDatasetComposer(synthetic_config, mock_tokenizer)
+
+        turn = Turn()
+        composer._generate_text_payloads(turn, is_first=True)
+
+        mock_generate.assert_called_once_with(mean=200, stddev=0)
+
     @patch("aiperf.dataset.generator.prompt.PromptGenerator.generate")
     def test_generate_text_payloads_multiple_batch_size(
         self, mock_generate, synthetic_config, mock_tokenizer
