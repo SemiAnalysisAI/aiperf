@@ -84,6 +84,37 @@ class TestSequenceLengthDistribution:
             f"Bucket 2 count {bucket2_count} deviates too far from expected {expected_per_bucket}"
         )
 
+    def test_prefix_prompt_length_is_carved_from_isl(self, cli: AIPerfCLI):
+        """--prefix-prompt-length is carved from --isl: reported ISL stays near isl_mean."""
+        isl_mean = 200
+        prefix_len = 100
+
+        result = cli.run_sync(
+            f"""
+            aiperf profile \
+                --model {defaults.model} \
+                --endpoint-type chat \
+                --streaming \
+                --random-seed 42 \
+                --isl {isl_mean} \
+                --prefix-prompt-length {prefix_len} \
+                --prefix-prompt-pool-size 5 \
+                --num-sessions 20 \
+                --workers-max {defaults.workers_max} \
+                --ui {defaults.ui}
+            """,
+            timeout=60.0,
+        )
+
+        isls = [
+            record.metrics.get("input_sequence_length").value for record in result.jsonl
+        ]
+        for isl in isls:
+            assert isl_mean - 5 <= isl <= isl_mean + 5, (
+                f"Reported ISL {isl} is outside [{isl_mean - 5}, {isl_mean + 5}]. "
+                f"Prefix may not be carved from ISL budget correctly."
+            )
+
 
 @pytest.mark.component_integration
 class TestRandomRangeRatio:
