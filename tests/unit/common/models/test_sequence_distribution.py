@@ -887,6 +887,64 @@ class TestRangeRatioDistribution:
 
         assert first_run == second_run
 
+    def test_num_special_tokens_adjusts_isl_mean_only(self):
+        """num_special_tokens subtracts from isl_mean before computing bounds; osl is unchanged."""
+        dist_plain = RangeRatioDistribution(
+            isl_mean=512, osl_mean=128, input_ratio=0.3, output_ratio=0.3
+        )
+        dist_adjusted = RangeRatioDistribution(
+            isl_mean=512,
+            osl_mean=128,
+            input_ratio=0.3,
+            output_ratio=0.3,
+            num_special_tokens=1,
+        )
+        # ISL bounds shift down by 1 (adjusted_mean = 511)
+        assert dist_adjusted.input_bounds == (
+            math.floor(511 * 0.7),
+            math.ceil(511 * 1.3),
+        )
+        # OSL bounds unchanged (max_tokens is passed directly to server)
+        assert dist_adjusted.output_bounds == dist_plain.output_bounds
+
+    def test_num_special_tokens_clamps_adjusted_mean_to_one(self):
+        """adjusted_mean = max(1, isl_mean - num_special_tokens) -- never goes below 1."""
+        dist = RangeRatioDistribution(
+            isl_mean=1,
+            osl_mean=128,
+            input_ratio=0.0,
+            output_ratio=0.0,
+            num_special_tokens=5,
+        )
+        # adjusted_mean = max(1, 1-5) = 1
+        assert dist.input_bounds == (1, 1)
+
+    def test_num_special_tokens_zero_is_identity(self):
+        """num_special_tokens=0 (default) produces identical bounds to omitting the param."""
+        dist_default = RangeRatioDistribution(
+            isl_mean=512, osl_mean=128, input_ratio=0.3, output_ratio=0.3
+        )
+        dist_explicit_zero = RangeRatioDistribution(
+            isl_mean=512,
+            osl_mean=128,
+            input_ratio=0.3,
+            output_ratio=0.3,
+            num_special_tokens=0,
+        )
+        assert dist_default.input_bounds == dist_explicit_zero.input_bounds
+        assert dist_default.output_bounds == dist_explicit_zero.output_bounds
+
+    def test_num_special_tokens_negative_raises(self):
+        """Negative num_special_tokens is invalid."""
+        with pytest.raises(ValueError, match="num_special_tokens"):
+            RangeRatioDistribution(
+                isl_mean=512,
+                osl_mean=128,
+                input_ratio=0.3,
+                output_ratio=0.3,
+                num_special_tokens=-1,
+            )
+
 
 class TestRangeRatioDistributionSglangMode:
     """sglang-mode semantics: lower-bounded window [max(1, int(mean*r)), mean]."""

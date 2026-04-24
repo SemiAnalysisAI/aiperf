@@ -545,12 +545,17 @@ class RangeRatioDistribution:
         input_ratio: float,
         output_ratio: float,
         mode: RangeRatioMode = RangeRatioMode.VLLM,
+        num_special_tokens: int = 0,
     ) -> None:
         if isl_mean < 1:
             raise ValueError(f"Input sequence length mean must be >= 1, got {isl_mean}")
         if osl_mean < 1:
             raise ValueError(
                 f"Output sequence length mean must be >= 1, got {osl_mean}"
+            )
+        if num_special_tokens < 0:
+            raise ValueError(
+                f"num_special_tokens must be >= 0, got {num_special_tokens}"
             )
         self._validate_ratio("input_range_ratio", input_ratio, mode)
         self._validate_ratio("output_range_ratio", output_ratio, mode)
@@ -561,9 +566,11 @@ class RangeRatioDistribution:
         self._input_ratio = float(input_ratio)
         self._output_ratio = float(output_ratio)
         self._mode = mode
+        self._num_special_tokens = num_special_tokens
 
+        adjusted_isl_mean = max(1, self._isl_mean - num_special_tokens)
         self._input_low, self._input_high = self._compute_bounds(
-            self._isl_mean, self._input_ratio, mode
+            adjusted_isl_mean, self._input_ratio, mode
         )
         self._output_low, self._output_high = self._compute_bounds(
             self._osl_mean, self._output_ratio, mode
@@ -571,7 +578,8 @@ class RangeRatioDistribution:
 
         logger.debug(
             f"Created RangeRatioDistribution({mode}): "
-            f"ISL in [{self._input_low}, {self._input_high}], "
+            f"ISL in [{self._input_low}, {self._input_high}] "
+            f"(mean={self._isl_mean}, adjusted={adjusted_isl_mean}), "
             f"OSL in [{self._output_low}, {self._output_high}]"
         )
 
@@ -596,7 +604,7 @@ class RangeRatioDistribution:
             low = max(1, math.floor(mean * (1 - ratio)))
             high = max(1, math.ceil(mean * (1 + ratio)))
         else:
-            # sglang: [max(1, int(mean * r)), mean] inclusive on both ends.
+            # matches sglang.bench_serving compute_random_lens semantics
             low = max(1, int(mean * ratio))
             high = max(1, mean)
         return low, high
