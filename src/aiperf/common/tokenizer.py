@@ -510,7 +510,7 @@ class Tokenizer:
         return self._resolved_name
 
     @property
-    def bos_token_id(self) -> int:
+    def bos_token_id(self) -> int | None:
         """
         Return the beginning-of-sequence (BOS) token ID.
         """
@@ -537,6 +537,17 @@ class Tokenizer:
         if self.eos_token_id is not None:
             return self.eos_token_id
         return None
+
+    def num_prompt_special_tokens(self) -> int:
+        """Number of special tokens the server prepends to each prompt.
+
+        Returns 1 when the tokenizer defines a BOS token (most HuggingFace
+        models), 0 otherwise (tiktoken, models with no BOS).  Used to adjust
+        the ISL mean in RangeRatioDistribution so that --isl represents the
+        total server-side token count rather than the aiperf-side content count.
+        """
+        self._require_init()
+        return 1 if self.bos_token_id is not None else 0
 
     def __repr__(self) -> str:
         """

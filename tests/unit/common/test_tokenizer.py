@@ -66,6 +66,24 @@ class TestBuiltinTokenizer:
     ) -> None:
         assert tokenizer.block_separation_token_id == tokenizer.eos_token_id
 
+    def test_num_prompt_special_tokens_returns_zero_when_no_bos(
+        self, tokenizer: Tokenizer
+    ) -> None:
+        """Builtin (tiktoken) tokenizer has no BOS — zero special tokens to add."""
+        assert tokenizer.num_prompt_special_tokens() == 0
+
+    def test_num_prompt_special_tokens_returns_one_when_bos_defined(self) -> None:
+        """Returns 1 when the underlying tokenizer defines a BOS token."""
+        from unittest.mock import MagicMock, patch
+
+        mock_inner = MagicMock()
+        mock_inner.bos_token_id = 1
+        mock_inner.eos_token_id = 2
+
+        tok = Tokenizer()
+        with patch.object(tok, "_tokenizer", mock_inner):
+            assert tok.num_prompt_special_tokens() == 1
+
     def test_call_returns_input_ids(self, tokenizer: Tokenizer) -> None:
         result = tokenizer("hello")
         assert "input_ids" in result
