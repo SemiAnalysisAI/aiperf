@@ -39,6 +39,17 @@ class SyntheticDatasetComposer(BaseDatasetComposer):
                 "setting the mean to a positive value."
             )
 
+        if (
+            self.prefix_prompt_enabled
+            and self.config.input.prompt.prefix_prompt.length
+            >= self.config.input.prompt.input_tokens.mean
+        ):
+            self.warning(
+                f"--prefix-prompt-length ({self.config.input.prompt.prefix_prompt.length}) >= --isl ({self.config.input.prompt.input_tokens.mean}): "
+                f"user content will be clamped to 1 token per request. "
+                f"Set --isl > {self.config.input.prompt.prefix_prompt.length} to get meaningful user content variation."
+            )
+
     def create_dataset(self) -> list[Conversation]:
         """Create a synthetic conversation dataset from the given configuration.
 

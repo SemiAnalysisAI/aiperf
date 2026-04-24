@@ -71,6 +71,29 @@ class TestSyntheticDatasetComposer:
         assert input_config.image.height.mean == 10
         assert input_config.audio.length.mean == 2
 
+    def test_initialization_warns_when_prefix_length_exceeds_isl_mean(
+        self, mock_tokenizer, caplog
+    ):
+        """Warn at startup when prefix_length >= isl_mean (user content collapses to 1 token)."""
+        import logging
+
+        config = UserConfig(
+            endpoint=EndpointConfig(model_names=["test-model"]),
+            input=InputConfig(
+                conversation=ConversationConfig(num_dataset_entries=1),
+                prompt=PromptConfig(
+                    input_tokens=InputTokensConfig(mean=10, stddev=0),
+                    prefix_prompt=PrefixPromptConfig(pool_size=1, length=50),
+                ),
+            ),
+        )
+        with caplog.at_level(logging.WARNING):
+            SyntheticDatasetComposer(config, mock_tokenizer)
+
+        assert any(
+            "prefix" in msg.lower() and "isl" in msg.lower() for msg in caplog.messages
+        )
+
     def test_initialization_with_all_zero_mean(self, mock_tokenizer):
         """Test initialization with no generators enabled."""
         config = UserConfig(
