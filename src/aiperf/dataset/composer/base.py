@@ -36,10 +36,13 @@ class BaseDatasetComposer(AIPerfLoggerMixin, ABC):
 
         self.turn_count = 0
 
-        # Initialize sequence distribution sampler (SequenceLengthDistribution or
-        # RangeRatioDistribution, depending on which user flag is set).
+        num_special_tokens = (
+            tokenizer.num_prompt_special_tokens() if tokenizer is not None else 0
+        )
         self._seq_distribution: SequenceLengthSampler | None = (
-            config.input.prompt.get_sequence_distribution()
+            config.input.prompt.get_sequence_distribution(
+                num_special_tokens=num_special_tokens
+            )
         )
 
         # Cache for turn-level sequence lengths to ensure ISL/OSL pairing consistency

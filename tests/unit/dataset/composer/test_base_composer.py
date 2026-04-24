@@ -347,6 +347,30 @@ class TestBaseDatasetComposer:
         assert conversations[1].system_message is None
         assert conversations[2].system_message is None
 
+    def test_init_threads_num_special_tokens_from_tokenizer_to_seq_distribution(
+        self, base_config, mock_tokenizer
+    ):
+        """BaseDatasetComposer reads num_prompt_special_tokens() from the tokenizer
+        and passes it to get_sequence_distribution, shifting ISL bounds down."""
+
+        from aiperf.common.config import InputTokensConfig, PromptConfig
+        from aiperf.common.config.prompt_config import OutputTokensConfig
+
+        mock_tokenizer.num_prompt_special_tokens.return_value = 1
+
+        base_config.input.prompt = PromptConfig(
+            random_range_ratio="0.0",
+            input_tokens=InputTokensConfig(mean=512),
+            output_tokens=OutputTokensConfig(mean=128),
+        )
+
+        composer = ConcreteBaseComposer(base_config, mock_tokenizer)
+
+        # vllm mode, ratio=0.0: bounds = [floor(mean * 1.0), ceil(mean * 1.0)] = [mean, mean]
+        # With num_special_tokens=1: adjusted_mean = 511, bounds = (511, 511)
+        assert composer._seq_distribution is not None
+        assert composer._seq_distribution.input_bounds == (511, 511)
+
     def test_inject_context_prompts_with_both_prompts(
         self, base_config, mock_tokenizer
     ):

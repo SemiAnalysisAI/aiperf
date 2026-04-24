@@ -303,3 +303,36 @@ def test_prompt_config_random_range_ratio_vllm_mode_rejects_ratio_one():
             input_tokens=InputTokensConfig(mean=1024),
             output_tokens=OutputTokensConfig(mean=128),
         )
+
+
+def test_prompt_config_get_sequence_distribution_passes_num_special_tokens():
+    """num_special_tokens shifts the ISL bounds in the returned distribution."""
+    import math
+
+    from aiperf.common.models.sequence_distribution import RangeRatioDistribution
+
+    config = PromptConfig(
+        random_range_ratio="0.3",
+        input_tokens=InputTokensConfig(mean=512),
+        output_tokens=OutputTokensConfig(mean=128),
+    )
+    dist = config.get_sequence_distribution(num_special_tokens=1)
+    assert isinstance(dist, RangeRatioDistribution)
+    # adjusted_mean = max(1, 512 - 1) = 511
+    assert dist.input_bounds == (math.floor(511 * 0.7), math.ceil(511 * 1.3))
+
+
+def test_prompt_config_get_sequence_distribution_default_num_special_tokens_zero():
+    """Default num_special_tokens=0 leaves bounds at the configured isl_mean."""
+
+    from aiperf.common.models.sequence_distribution import RangeRatioDistribution
+
+    config = PromptConfig(
+        random_range_ratio="0.3",
+        input_tokens=InputTokensConfig(mean=512),
+        output_tokens=OutputTokensConfig(mean=128),
+    )
+    dist_default = config.get_sequence_distribution()
+    dist_explicit = config.get_sequence_distribution(num_special_tokens=0)
+    assert isinstance(dist_default, RangeRatioDistribution)
+    assert dist_default.input_bounds == dist_explicit.input_bounds
