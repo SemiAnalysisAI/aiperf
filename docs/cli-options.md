@@ -34,6 +34,18 @@ Explore AIPerf plugins: aiperf plugins [category] [type]
 
 Run an AIPerf service in a single process.
 
+### [`speed-bench-report`](#aiperf-speed-bench-report)
+
+Assemble per-category SPEED-Bench aiperf results into a matrix report.
+
+### [`synthesize`](#aiperf-synthesize)
+
+Synthesize a dataset workload.
+
+### [`validate`](#aiperf-validate)
+
+Validate a benchmark artifact.
+
 <hr/>
 
 ## `aiperf --install-completion`
@@ -1122,3 +1134,97 @@ Host to bind the health server to. Falls back to AIPERF_SERVICE_HEALTH_HOST envi
 #### `--health-port` `<int>`
 
 HTTP port for health endpoints (/healthz, /readyz). Required for Kubernetes liveness and readiness probes. Falls back to AIPERF_SERVICE_HEALTH_PORT environment variable.
+
+<hr/>
+
+## `aiperf speed-bench-report`
+
+Assemble per-category SPEED-Bench aiperf results into a matrix report.
+
+Run ``aiperf profile`` once per SPEED-Bench category, then point this command at the output directories to produce a matrix matching the SPEED-Bench paper format.
+
+**Examples:**
+
+```bash
+# Scan a parent directory for per-category run subdirectories
+aiperf speed-bench-report ./artifacts/
+
+# List run directories explicitly
+aiperf speed-bench-report ./artifacts/run_coding/ ./artifacts/run_math/
+
+# Acceptance rate matrix (accepted / draft tokens)
+aiperf speed-bench-report ./artifacts/ --metric accept_rate
+
+# Throughput matrix (output tokens/sec per category)
+aiperf speed-bench-report ./artifacts/ --metric throughput
+```
+
+#### `--paths`, `--empty-paths` `<list>` _(Required)_
+
+Run directories or parent directories containing run subdirectories.
+
+#### `--output` `<str>`
+
+Output CSV file path. Defaults to ./speed_bench_report.csv.
+<br/>_Default: `speed_bench_report.csv`_
+
+#### `--format` `<str>`
+
+Output format - 'csv', 'table', or 'both'. Defaults to 'both'.
+<br/>_Default: `both`_
+
+#### `--metric` `<str>`
+
+Which metric to report - 'accept_length', 'accept_rate', or 'throughput'. Defaults to 'accept_length'.
+<br/>_Default: `accept_length`_
+
+<hr/>
+
+## `aiperf synthesize`
+
+Synthesize a dataset workload.
+
+#### `--target` `<str>` _(Required)_
+
+Dataset workload to synthesize.
+
+#### `--num-sessions` `<int>`
+
+Number of sessions to generate.
+<br/>_Default: `1000`_
+
+#### `--output` `<str>`
+
+Parent directory for the run directory.
+<br/>_Default: `.`_
+
+#### `--config` `<str>`
+
+Path to config/manifest JSON.
+
+#### `--seed` `<int>`
+
+Random seed for reproducibility.
+<br/>_Default: `42`_
+
+#### `--max-isl` `<int>`
+
+Maximum input sequence length.
+
+#### `--max-osl` `<int>`
+
+Maximum output sequence length.
+
+<hr/>
+
+## `aiperf validate`
+
+Validate a benchmark artifact.
+
+#### `--target` `<str>` _(Required)_
+
+Artifact format to validate.
+
+#### `--input` `<str>` _(Required)_
+
+Path to the artifact file.
