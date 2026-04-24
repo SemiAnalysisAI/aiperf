@@ -502,7 +502,7 @@ Distribution of (ISL, OSL) pairs with probabilities for mixed workload simulatio
 
 #### `--random-range-ratio` `<str>`
 
-Sample ISL and OSL uniformly from a ratio-defined integer window around the configured means. The window is computed from `--random-range-ratio-mode` (defaults to `vllm`): vllm mode → `[floor(mean*(1-r)), ceil(mean*(1+r))]` (symmetric); sglang mode → `[max(1, int(mean*r)), mean]` (lower-bounded). Accepts a single float (applied to both ISL and OSL) or a JSON object `{"input": 0.3, "output": 0.5}` for independent values. Uses `--osl` for the OSL mean, falling back to 128 when `--osl` is not set. Mutually exclusive with `--seq-dist`, `--isl-stddev`, and `--osl-stddev`.
+Sample ISL and OSL uniformly from a ratio-defined integer window around the configured means. The window is computed from `--random-range-ratio-mode` (defaults to `vllm`): vllm mode → `[floor(mean*(1-r)), ceil(mean*(1+r))]` (symmetric); sglang mode → `[max(1, int(mean*r)), mean]` (lower-bounded). Accepts a single float (applied to both ISL and OSL) or a JSON object `{"input": 0.3, "output": 0.5}` for independent values. Uses `--osl` for the OSL mean, falling back to 128 when `--osl` is not set. Mutually exclusive with `--seq-dist`, `--isl-stddev`, and `--osl-stddev`. When a tokenizer is configured, the ISL mean is automatically reduced by the number of BOS tokens the server will prepend, so `--isl` represents total server-side input tokens.
 
 #### `--random-range-ratio-mode` `<str>`
 
