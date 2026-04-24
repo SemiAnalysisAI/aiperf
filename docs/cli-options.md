@@ -538,7 +538,7 @@ Number of distinct prefix prompts to generate for K-V cache testing. Each prefix
 
 #### `--prompt-prefix-length`, `--prefix-prompt-length` `<int>`
 
-The number of tokens in each prefix prompt. This is only used if `--num-prefix-prompts` is greater than zero. Note that due to the prefix and user prompts being concatenated, the number of tokens in the final prompt may be off by one.Mutually exclusive with `--shared-system-prompt-length`/`--user-context-prompt-length`.
+Tokens reserved for each prefix prompt, carved out of `--isl`. When prefix is active, user content is generated with `max(1, isl - prefix_length)` tokens so that the total request length equals `--isl`, matching vllm/sglang semantics. Only used when `--prompt-prefix-pool-size` > 0. Mutually exclusive with `--shared-system-prompt-length`/`--user-context-prompt-length`.
 <br/>_Constraints: ≥ 0_
 <br/>_Default: `0`_
 

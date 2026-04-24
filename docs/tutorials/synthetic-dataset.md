@@ -104,7 +104,9 @@ with `--seq-dist`, `--isl-stddev`, and `--osl-stddev`.
 
 ### Advanced: Prefix Synthesis
 
-For shared-prefix benchmarking (e.g., RAG scenarios):
+For shared-prefix benchmarking (e.g., RAG scenarios where all requests share a cached
+system context), set `--isl` to the **total** request length and `--prefix-prompt-length`
+to the shared portion. The variable user content fills the remainder.
 
 <!-- aiperf-run-vllm-default-openai-endpoint-server -->
 ```bash
@@ -112,14 +114,16 @@ aiperf profile \
   --model Qwen/Qwen3-0.6B \
   --url localhost:8000 \
   --endpoint-type chat \
-  --synthetic-input-tokens-mean 100 \
+  --synthetic-input-tokens-mean 612 \
   --prefix-prompt-length 512 \
   --prefix-prompt-pool-size 10 \
   --request-count 10
 ```
 <!-- /aiperf-run-vllm-default-openai-endpoint-server -->
 
-Each request randomly selects a 512-token prefix from a pool of 10, with a randomly sampled 100-token continuation. See [Prefix Synthesis](prefix-synthesis.md) for details.
+Each request selects a 512-token prefix from a pool of 10 and fills the remaining
+100 tokens with unique user content, for a total of ~612 input tokens. See
+[Prefix Synthesis](prefix-synthesis.md) for details.
 
 ---
 

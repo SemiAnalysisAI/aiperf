@@ -151,10 +151,10 @@ class PrefixPromptConfig(BaseConfig):
         Field(
             ge=0,
             description=(
-                "The number of tokens in each prefix prompt.\n"
-                "This is only used if `--num-prefix-prompts` is greater than zero.\n"
-                "Note that due to the prefix and user prompts being concatenated,\n"
-                "the number of tokens in the final prompt may be off by one."
+                "Tokens reserved for each prefix prompt, carved out of `--isl`. "
+                "When prefix is active, user content is generated with `max(1, isl - prefix_length)` tokens "
+                "so that the total request length equals `--isl`, matching vllm/sglang semantics. "
+                "Only used when `--prompt-prefix-pool-size` > 0. "
                 "Mutually exclusive with `--shared-system-prompt-length`/`--user-context-prompt-length`."
             ),
         ),
