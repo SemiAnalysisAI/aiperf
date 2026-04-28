@@ -391,7 +391,7 @@ class GPUTelemetryAccumulator(BaseMetricsProcessor):
                     )
 
         self.debug(
-            f"compute_efficiency_metrics totals: power={total_power_w:.2f}W "
+            lambda: f"compute_efficiency_metrics totals: power={total_power_w:.2f}W "
             f"({power_gpu_count} GPUs), energy={total_energy_j:.2f}J ({energy_gpu_count} GPUs)"
         )
 
@@ -402,7 +402,7 @@ class GPUTelemetryAccumulator(BaseMetricsProcessor):
                     header="Total GPU Power",
                     unit=str(PowerMetricUnit.WATT),
                     avg=total_power_w,
-                    count=power_gpu_count,
+                    count=None,
                 )
             )
         else:
@@ -415,7 +415,7 @@ class GPUTelemetryAccumulator(BaseMetricsProcessor):
                     header="Total GPU Energy",
                     unit=str(EnergyMetricUnit.JOULE),
                     avg=total_energy_j,
-                    count=energy_gpu_count,
+                    count=None,
                 )
             )
         else:
