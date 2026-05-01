@@ -58,16 +58,17 @@ class AccuracyConfig(BaseConfig):
     ] = None
 
     enable_cot: Annotated[
-        bool,
+        bool | None,
         Field(
             description="Enable chain-of-thought prompting for accuracy evaluation. "
-            "Adds reasoning instructions to the prompt.",
+            "Adds reasoning instructions to the prompt. Defaults to the benchmark's "
+            "``default_enable_cot`` metadata when unset (e.g. AIME defaults to True).",
         ),
         CLIParameter(
             name=("--accuracy-enable-cot",),
             group=_CLI_GROUP,
         ),
-    ] = False
+    ] = None
 
     grader: Annotated[
         AccuracyGraderType | None,
