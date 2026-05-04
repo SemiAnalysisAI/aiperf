@@ -288,12 +288,14 @@ class TestSweepConfidenceExport:
             patch("aiperf.orchestrator.export_helpers.export_confidence") as mock_conf,
             patch("aiperf.orchestrator.export_helpers.export_sweep") as mock_sweep,
         ):
-            mock_conf.side_effect = lambda agg, path: exported_paths.append(
-                ("conf", path)
-            ) or (path / "a.json", path / "a.csv")
-            mock_sweep.side_effect = lambda agg, path: exported_paths.append(
-                ("sweep", path)
-            ) or (path / "s.json", path / "s.csv")
+            mock_conf.side_effect = lambda agg, path: (
+                exported_paths.append(("conf", path))
+                or (path / "a.json", path / "a.csv")
+            )
+            mock_sweep.side_effect = lambda agg, path: (
+                exported_paths.append(("sweep", path))
+                or (path / "s.json", path / "s.csv")
+            )
             strategy_repeated.export_aggregates(aggregate, tmp_path)
 
         # Repeated mode: base_dir/aggregate/concurrency_10, base_dir/aggregate/concurrency_20
@@ -313,12 +315,14 @@ class TestSweepConfidenceExport:
             patch("aiperf.orchestrator.export_helpers.export_confidence") as mock_conf,
             patch("aiperf.orchestrator.export_helpers.export_sweep") as mock_sweep,
         ):
-            mock_conf.side_effect = lambda agg, path: exported_paths.append(
-                ("conf", path)
-            ) or (path / "a.json", path / "a.csv")
-            mock_sweep.side_effect = lambda agg, path: exported_paths.append(
-                ("sweep", path)
-            ) or (path / "s.json", path / "s.csv")
+            mock_conf.side_effect = lambda agg, path: (
+                exported_paths.append(("conf", path))
+                or (path / "a.json", path / "a.csv")
+            )
+            mock_sweep.side_effect = lambda agg, path: (
+                exported_paths.append(("sweep", path))
+                or (path / "s.json", path / "s.csv")
+            )
             strategy_independent.export_aggregates(aggregate, tmp_path)
 
         # Independent mode: base_dir/concurrency_10/aggregate, base_dir/concurrency_20/aggregate
