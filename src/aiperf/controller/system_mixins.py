@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 import asyncio
+import platform
 import signal
 from collections.abc import Callable, Coroutine
 
@@ -30,5 +31,16 @@ class SignalHandlerMixin(AIPerfLoggerMixin):
             self._signal_tasks.add(task)
             task.add_done_callback(self._signal_tasks.discard)
 
-        loop.add_signal_handler(signal.SIGINT, signal_handler, signal.SIGINT)
+        # Windows ProactorEventLoop does not implement add_signal_handler.
+        # Fall back to signal.signal(), which Windows supports for SIGINT.
+        # The handler is dispatched on the main thread and re-enters the loop
+        # via run_coroutine_threadsafe to invoke the async callback.
+        if platform.system() == "Windows":
+            def windows_signal_handler(sig: int, _frame: object) -> None:
+                self.warning(f"Signal {sig} received, initiating graceful shutdown")
+                asyncio.run_coroutine_threadsafe(callback(sig), loop)
+
+            signal.signal(signal.SIGINT, windows_signal_handler)
+        else:
+            loop.add_signal_handler(signal.SIGINT, signal_handler, signal.SIGINT)
         self.debug("SIGINT handler installed successfully")
