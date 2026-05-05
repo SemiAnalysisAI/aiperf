@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import platform
 import shlex
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from multiprocessing import Process
@@ -606,5 +607,9 @@ class AIPerfCLI:
             List of command arguments
         """
         cmd = cmd.strip().replace("\\\n", " ")
-        args = shlex.split(cmd)
+        # POSIX-mode shlex treats backslash as an escape character, which
+        # strips backslashes from Windows paths (C:\Users\... becomes
+        # C:Users...). On Windows we parse in non-POSIX mode so backslashes
+        # in interpolated paths are preserved.
+        args = shlex.split(cmd, posix=(sys.platform != "win32"))
         return args[1:] if args and args[0] == "aiperf" else args
