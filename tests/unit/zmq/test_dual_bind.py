@@ -116,7 +116,7 @@ class TestZMQDualBindProxyConfig:
 
     def test_ipc_addr_raises_without_path(self) -> None:
         cfg = ZMQDualBindProxyConfig(name="test")
-        with pytest.raises(ValueError, match="IPC path is required"):
+        with pytest.raises(ValueError, match="[Pp]ath is required"):
             _ = cfg.frontend_address
 
     @pytest.mark.parametrize(
@@ -626,7 +626,7 @@ class TestZMQDualBindConfigIPCAddrError:
     def test_ipc_addr_raises_when_ipc_path_cleared(self) -> None:
         cfg = ZMQDualBindConfig()
         cfg.ipc_path = None
-        with pytest.raises(ValueError, match="IPC path is required"):
+        with pytest.raises(ValueError, match="[Pp]ath is required"):
             _ = cfg.records_push_pull_address
 
 

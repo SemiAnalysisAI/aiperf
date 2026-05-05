@@ -4,7 +4,7 @@ import platform
 import shlex
 from collections.abc import Callable
 from dataclasses import dataclass
-from multiprocessing.context import ForkProcess, SpawnProcess
+from multiprocessing import Process
 from pathlib import Path
 from typing import Any, TypeAlias
 
@@ -42,7 +42,7 @@ class AIPerfMockServer:
     host: str
     port: int
     url: str
-    process: SpawnProcess | ForkProcess
+    process: Process
 
     @property
     def dcgm_urls(self) -> list[str]:
