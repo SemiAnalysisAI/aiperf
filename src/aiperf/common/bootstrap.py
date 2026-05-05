@@ -157,6 +157,14 @@ def bootstrap_and_run_service(
         if Environment.DEV.ENABLE_YAPPI:
             _stop_yappi_profiling(service.service_id, user_config)
 
+    # On Windows, pyzmq's async sockets call loop.add_reader() / add_writer(),
+    # which the default ProactorEventLoop does not implement. Switch to
+    # WindowsSelectorEventLoopPolicy before asyncio.run() creates the loop.
+    # uvloop is already auto-disabled on Windows via environment.py, so this
+    # branch only runs in the asyncio path.
+    if platform.system() == "Windows":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
     with contextlib.suppress(asyncio.CancelledError):
         if not Environment.SERVICE.DISABLE_UVLOOP:
             import uvloop
