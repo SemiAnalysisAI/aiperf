@@ -7,12 +7,23 @@ TCP connector for use with aiohttp.ClientSession.
 """
 
 import socket
+
+import pytest
+
+# Skip the entire module before any class-level references to Linux-only
+# socket constants are evaluated at collection time. `pytestmark` is too late
+# because the class body runs during import.
+if not hasattr(socket, "TCP_QUICKACK"):
+    pytest.skip(
+        "Linux-only: socket.TCP_QUICKACK is not available on this platform",
+        allow_module_level=True,
+    )
+
 import ssl
 import sys
 from unittest.mock import Mock, patch
 
 import aiohttp
-import pytest
 import trustme
 from aiohttp import web
 
@@ -20,11 +31,6 @@ from aiperf.common.enums import IPVersion
 from aiperf.common.environment import Environment, _HTTPSettings
 from aiperf.transports.aiohttp_client import create_tcp_connector
 from aiperf.transports.http_defaults import AioHttpDefaults, _get_socket_family
-
-pytestmark = pytest.mark.skipif(
-    not hasattr(socket, "TCP_QUICKACK"),
-    reason="Linux-only: socket.TCP_QUICKACK is not available on this platform",
-)
 
 ################################################################################
 # Test create_tcp_connector
