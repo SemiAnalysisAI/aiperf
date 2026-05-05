@@ -12,10 +12,19 @@ Covers:
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
 from pytest import param
+
+# AIPerf falls back to tcp://127.0.0.1:<port> on Windows because pyzmq's Windows
+# wheels do not have ipc:// compiled in. Tests that assert ipc:// behavior are
+# Linux/macOS only; the runtime path is covered by integration tests on Windows.
+_skip_on_windows_ipc = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Test asserts ipc:// behavior; on Windows AIPerf falls back to tcp://",
+)
 
 from aiperf.common.config import (
     EndpointConfig,
@@ -55,6 +64,7 @@ class TestZMQDualBindProxyConfig:
             tcp_backend_port=5664,
         )
 
+    @_skip_on_windows_ipc
     def test_frontend_address_returns_ipc(
         self, proxy_config: ZMQDualBindProxyConfig
     ) -> None:
@@ -62,6 +72,7 @@ class TestZMQDualBindProxyConfig:
         assert addr.startswith("ipc://")
         assert "event_bus_proxy_frontend.ipc" in addr
 
+    @_skip_on_windows_ipc
     def test_backend_address_returns_ipc(
         self, proxy_config: ZMQDualBindProxyConfig
     ) -> None:
@@ -85,6 +96,7 @@ class TestZMQDualBindProxyConfig:
     ) -> None:
         assert proxy_config.capture_address is None
 
+    @_skip_on_windows_ipc
     def test_control_address_when_enabled(self, tmp_path: Path) -> None:
         cfg = ZMQDualBindProxyConfig(
             ipc_path=tmp_path, name="test", enable_control=True
@@ -93,6 +105,7 @@ class TestZMQDualBindProxyConfig:
         assert addr is not None
         assert "test_control.ipc" in addr
 
+    @_skip_on_windows_ipc
     def test_capture_address_when_enabled(self, tmp_path: Path) -> None:
         cfg = ZMQDualBindProxyConfig(
             ipc_path=tmp_path, name="test", enable_capture=True
@@ -109,7 +122,7 @@ class TestZMQDualBindProxyConfig:
     @pytest.mark.parametrize(
         "remote_host,expected_prefix",
         [
-            param(None, "ipc://", id="local-uses-ipc"),
+            param(None, "ipc://", id="local-uses-ipc", marks=_skip_on_windows_ipc),
             param("controller.svc.cluster.local", "tcp://controller.svc.cluster.local:", id="remote-uses-tcp"),
         ],
     )  # fmt: skip
@@ -125,7 +138,7 @@ class TestZMQDualBindProxyConfig:
     @pytest.mark.parametrize(
         "remote_host,expected_prefix",
         [
-            param(None, "ipc://", id="local-uses-ipc"),
+            param(None, "ipc://", id="local-uses-ipc", marks=_skip_on_windows_ipc),
             param("10.0.0.5", "tcp://10.0.0.5:", id="remote-uses-tcp"),
         ],
     )  # fmt: skip
@@ -212,14 +225,17 @@ class TestZMQDualBindConfig:
 
     # --- Local mode (controller_host=None) ---
 
+    @_skip_on_windows_ipc
     def test_records_address_local_uses_ipc(self, config: ZMQDualBindConfig) -> None:
         assert config.records_push_pull_address.startswith("ipc://")
 
+    @_skip_on_windows_ipc
     def test_credit_router_address_local_uses_ipc(
         self, config: ZMQDualBindConfig
     ) -> None:
         assert config.credit_router_address.startswith("ipc://")
 
+    @_skip_on_windows_ipc
     def test_get_address_local_returns_ipc_for_all(
         self, config: ZMQDualBindConfig
     ) -> None:
@@ -460,6 +476,7 @@ class TestProxyDualBind:
         assert proxy.config.additional_frontend_bind_address is None
         assert proxy.config.additional_backend_bind_address is None
 
+    @_skip_on_windows_ipc
     @pytest.mark.asyncio
     async def test_proxy_initialize_binds_both_ipc_and_tcp(
         self, mock_zmq_socket, mock_zmq_context, tmp_path: Path
@@ -564,10 +581,12 @@ class TestBaseZMQProxyConfigResolve:
 class TestZMQIPCProxyConfig:
     """Test ZMQIPCProxyConfig address construction."""
 
+    @_skip_on_windows_ipc
     def test_frontend_address(self, tmp_path: Path) -> None:
         cfg = ZMQIPCProxyConfig(path=tmp_path, name="test")
         assert cfg.frontend_address == f"ipc://{tmp_path / 'test'}_frontend.ipc"
 
+    @_skip_on_windows_ipc
     def test_backend_address(self, tmp_path: Path) -> None:
         cfg = ZMQIPCProxyConfig(path=tmp_path, name="test")
         assert cfg.backend_address == f"ipc://{tmp_path / 'test'}_backend.ipc"
@@ -576,6 +595,7 @@ class TestZMQIPCProxyConfig:
         cfg = ZMQIPCProxyConfig(path=tmp_path, name="test")
         assert cfg.control_address is None
 
+    @_skip_on_windows_ipc
     def test_control_address_enabled(self, tmp_path: Path) -> None:
         cfg = ZMQIPCProxyConfig(path=tmp_path, name="test", enable_control=True)
         assert "test_control.ipc" in cfg.control_address
@@ -584,6 +604,7 @@ class TestZMQIPCProxyConfig:
         cfg = ZMQIPCProxyConfig(path=tmp_path, name="test")
         assert cfg.capture_address is None
 
+    @_skip_on_windows_ipc
     def test_capture_address_enabled(self, tmp_path: Path) -> None:
         cfg = ZMQIPCProxyConfig(path=tmp_path, name="test", enable_capture=True)
         assert "test_capture.ipc" in cfg.capture_address

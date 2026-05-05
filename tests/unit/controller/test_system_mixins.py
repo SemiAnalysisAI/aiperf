@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import asyncio
 import signal
+import sys
 from unittest.mock import AsyncMock
 
 import pytest
@@ -33,6 +34,10 @@ class TestSignalHandlerMixinInitialization:
 class TestSetupSignalHandlers:
     """Test signal handler setup and signal handling."""
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="Windows uses signal.signal() instead of loop.add_signal_handler(); covered by integration test.",
+    )
     @pytest.mark.asyncio
     async def test_setup_signal_handlers(self, signal_handler_instance):
         """Test that setup_signal_handlers registers SIGINT handler."""

@@ -29,15 +29,16 @@ def _build_socket_address(path: Path | None, ipc_filename: str) -> str:
     On Linux/macOS: returns ipc://{path}/{ipc_filename} (Unix domain socket).
     On Windows: returns tcp://127.0.0.1:<port> with a deterministic port
     derived from sha256(path/ipc_filename), since Windows ZMQ does not
-    support ipc://.
+    support ipc://. Path is required on every platform so callers maintain
+    a consistent contract and the hash inputs are stable.
     """
+    if path is None:
+        raise ValueError("Path is required for IPC transport")
     if platform.system() == "Windows":
-        salt = f"{path}/{ipc_filename}" if path else ipc_filename
+        salt = f"{path}/{ipc_filename}"
         digest = hashlib.sha256(salt.encode()).hexdigest()
         port_offset = int(digest[:8], 16) % _WINDOWS_TCP_PORT_RANGE
         return f"tcp://127.0.0.1:{_WINDOWS_TCP_BASE_PORT + port_offset}"
-    if path is None:
-        raise ValueError("Path is required for IPC transport")
     return f"ipc://{path / ipc_filename}"
 
 

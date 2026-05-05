@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import sys
 import tempfile
 from pathlib import Path
 from typing import cast
@@ -155,6 +156,10 @@ class TestTCPConfiguration:
 class TestIPCConfiguration:
     """Test IPC-specific configuration behavior."""
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="AIPerf falls back to tcp://127.0.0.1:<port> on Windows; ipc:// is Linux/macOS only",
+    )
     @pytest.mark.parametrize(
         "path,expected_addresses",
         [
