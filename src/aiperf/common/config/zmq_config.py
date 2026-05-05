@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import hashlib
+import platform
 import tempfile
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -13,6 +15,30 @@ from aiperf.common.config.cli_parameter import CLIParameter, DisableCLI
 from aiperf.common.config.groups import Groups
 from aiperf.common.enums import CommAddress
 from aiperf.plugin.enums import CommunicationBackend
+
+# Windows fallback: ZMQ does not support ipc:// on Windows. Use TCP loopback
+# with a deterministic port derived from a hash of the would-be IPC path, so
+# bind and connect sides agree without explicit coordination.
+_WINDOWS_TCP_BASE_PORT = 5556
+_WINDOWS_TCP_PORT_RANGE = 10000
+
+
+def _build_socket_address(path: Path | None, ipc_filename: str) -> str:
+    """Build a ZMQ socket address for an inter-service connection.
+
+    On Linux/macOS: returns ipc://{path}/{ipc_filename} (Unix domain socket).
+    On Windows: returns tcp://127.0.0.1:<port> with a deterministic port
+    derived from sha256(path/ipc_filename), since Windows ZMQ does not
+    support ipc://.
+    """
+    if platform.system() == "Windows":
+        salt = f"{path}/{ipc_filename}" if path else ipc_filename
+        digest = hashlib.sha256(salt.encode()).hexdigest()
+        port_offset = int(digest[:8], 16) % _WINDOWS_TCP_PORT_RANGE
+        return f"tcp://127.0.0.1:{_WINDOWS_TCP_BASE_PORT + port_offset}"
+    if path is None:
+        raise ValueError("Path is required for IPC transport")
+    return f"ipc://{path / ipc_filename}"
 
 
 class BaseZMQProxyConfig(BaseModel, ABC):
@@ -165,10 +191,8 @@ class ZMQIPCProxyConfig(BaseZMQProxyConfig):
     enable_capture: bool = Field(default=False, description="Enable capture socket")
 
     def _addr(self, endpoint: str) -> str:
-        """Build an IPC address for the given endpoint."""
-        if self.path is None:
-            raise ValueError("Path is required for IPC transport")
-        return f"ipc://{self.path / self.name}_{endpoint}.ipc"
+        """Build an address for the given endpoint (ipc:// on Linux/macOS, tcp:// on Windows)."""
+        return _build_socket_address(self.path, f"{self.name}_{endpoint}.ipc")
 
     @property
     def frontend_address(self) -> str:
@@ -319,17 +343,13 @@ class ZMQIPCConfig(BaseZMQCommunicationConfig):
 
     @property
     def records_push_pull_address(self) -> str:
-        """Get the records push/pull address based on protocol configuration."""
-        if not self.path:
-            raise ValueError("Path is required for IPC transport")
-        return f"ipc://{self.path / 'records_push_pull.ipc'}"
+        """Get the records push/pull address (ipc:// on Linux/macOS, tcp:// on Windows)."""
+        return _build_socket_address(self.path, "records_push_pull.ipc")
 
     @property
     def credit_router_address(self) -> str:
-        """Get the credit router address for streaming ROUTER-DEALER."""
-        if not self.path:
-            raise ValueError("Path is required for IPC transport")
-        return f"ipc://{self.path / 'credit_router.ipc'}"
+        """Get the credit router address for streaming ROUTER-DEALER (ipc:// on Linux/macOS, tcp:// on Windows)."""
+        return _build_socket_address(self.path, "credit_router.ipc")
 
 
 class ZMQDualBindProxyConfig(BaseZMQProxyConfig):
@@ -357,10 +377,8 @@ class ZMQDualBindProxyConfig(BaseZMQProxyConfig):
     enable_capture: bool = Field(default=False, description="Enable capture socket")
 
     def _ipc_addr(self, endpoint: str) -> str:
-        """Build an IPC address for the given endpoint."""
-        if self.ipc_path is None:
-            raise ValueError("IPC path is required for dual-bind transport")
-        return f"ipc://{self.ipc_path / self.name}_{endpoint}.ipc"
+        """Build a local address for the given endpoint (ipc:// on Linux/macOS, tcp:// on Windows)."""
+        return _build_socket_address(self.ipc_path, f"{self.name}_{endpoint}.ipc")
 
     def _tcp_addr(self, port: int) -> str:
         """Build a TCP address for the given port (bind-side)."""
@@ -512,10 +530,8 @@ class ZMQDualBindConfig(BaseZMQCommunicationConfig):
     )
 
     def _ipc_addr(self, name: str) -> str:
-        """Build an IPC address for the given endpoint name."""
-        if not self.ipc_path:
-            raise ValueError("IPC path is required")
-        return f"ipc://{self.ipc_path / name}.ipc"
+        """Build a local address for the given endpoint name (ipc:// on Linux/macOS, tcp:// on Windows)."""
+        return _build_socket_address(self.ipc_path, f"{name}.ipc")
 
     @property
     def records_push_pull_address(self) -> str:
