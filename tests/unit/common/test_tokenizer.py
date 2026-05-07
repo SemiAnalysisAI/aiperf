@@ -72,14 +72,61 @@ class TestBuiltinTokenizer:
         """Builtin (tiktoken) tokenizer has no BOS — zero special tokens to add."""
         assert tokenizer.num_prompt_special_tokens() == 0
 
-    def test_num_prompt_special_tokens_returns_one_when_bos_defined(self) -> None:
-        """Returns 1 when the underlying tokenizer defines a BOS token."""
-        from unittest.mock import MagicMock, patch
+    def test_num_prompt_special_tokens_delegates_to_hf_method(self) -> None:
+        """Returns whatever HF's num_special_tokens_to_add(pair=False) reports.
 
-        mock_inner = MagicMock()
-        mock_inner.bos_token_id = 1
-        mock_inner.eos_token_id = 2
+        For BERT-like tokenizers this is 2 (CLS+SEP); the BOS heuristic alone
+        would under-count it.
+        """
+        from types import SimpleNamespace
 
+        mock_inner = SimpleNamespace(
+            bos_token_id=101,
+            eos_token_id=102,
+            num_special_tokens_to_add=lambda pair=False: 2 if not pair else 3,
+        )
+        tok = Tokenizer()
+        with patch.object(tok, "_tokenizer", mock_inner):
+            assert tok.num_prompt_special_tokens() == 2
+
+    def test_num_prompt_special_tokens_returns_zero_when_hf_method_says_zero(
+        self,
+    ) -> None:
+        """GPT-2 has bos_token_id but doesn't auto-prepend it; HF method returns 0."""
+        from types import SimpleNamespace
+
+        mock_inner = SimpleNamespace(
+            bos_token_id=50256,
+            eos_token_id=50256,
+            num_special_tokens_to_add=lambda pair=False: 0,
+        )
+        tok = Tokenizer()
+        with patch.object(tok, "_tokenizer", mock_inner):
+            assert tok.num_prompt_special_tokens() == 0
+
+    def test_num_prompt_special_tokens_falls_back_to_bos_heuristic(self) -> None:
+        """Tokenizers without num_special_tokens_to_add fall back to BOS presence."""
+        from types import SimpleNamespace
+
+        with_bos = SimpleNamespace(bos_token_id=1, eos_token_id=2)
+        without_bos = SimpleNamespace(bos_token_id=None, eos_token_id=2)
+
+        tok = Tokenizer()
+        with patch.object(tok, "_tokenizer", with_bos):
+            assert tok.num_prompt_special_tokens() == 1
+        with patch.object(tok, "_tokenizer", without_bos):
+            assert tok.num_prompt_special_tokens() == 0
+
+    def test_num_prompt_special_tokens_falls_back_when_hf_method_raises(self) -> None:
+        """A custom tokenizer whose method raises is treated as if absent."""
+        from types import SimpleNamespace
+
+        def _boom(pair: bool = False) -> int:
+            raise RuntimeError("not implemented")
+
+        mock_inner = SimpleNamespace(
+            bos_token_id=1, eos_token_id=2, num_special_tokens_to_add=_boom
+        )
         tok = Tokenizer()
         with patch.object(tok, "_tokenizer", mock_inner):
             assert tok.num_prompt_special_tokens() == 1

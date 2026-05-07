@@ -539,14 +539,27 @@ class Tokenizer:
         return None
 
     def num_prompt_special_tokens(self) -> int:
-        """Number of special tokens the server prepends to each prompt.
+        """Number of special tokens the server adds to each prompt.
 
-        Returns 1 when the tokenizer defines a BOS token (most HuggingFace
-        models), 0 otherwise (tiktoken, models with no BOS).  Used to adjust
-        the ISL mean in RangeRatioDistribution so that --isl represents the
-        total server-side token count rather than the aiperf-side content count.
+        Mirrors vllm's ``tokenizer.num_special_tokens_to_add(pair=False)``,
+        which returns the count from ``build_inputs_with_special_tokens([])``:
+        e.g. 1 for Llama/Mistral (BOS), 0 for GPT-2 (no auto-BOS despite
+        having ``bos_token_id``), 2 for BERT (CLS+SEP), 1 for T5 (EOS).
+        Used to adjust the ISL mean in RangeRatioDistribution so that
+        ``--isl`` represents the total server-side token count rather than
+        the aiperf-side content count.
+
+        Falls back to a BOS-presence heuristic for tokenizers that don't
+        expose ``num_special_tokens_to_add`` (tiktoken adapter, some
+        custom tokenizers).
         """
         self._require_init()
+        method = getattr(self._tokenizer, "num_special_tokens_to_add", None)
+        if callable(method):
+            try:
+                return int(method(pair=False))
+            except Exception:
+                pass
         return 1 if self.bos_token_id is not None else 0
 
     def __repr__(self) -> str:
