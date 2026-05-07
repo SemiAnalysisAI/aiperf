@@ -20,7 +20,6 @@ if not hasattr(socket, "TCP_QUICKACK"):
     )
 
 import ssl
-import sys
 from unittest.mock import Mock, patch
 
 import aiohttp

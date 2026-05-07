@@ -1,10 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 import asyncio
-import platform
 import signal
 from collections.abc import Callable, Coroutine
 
+from aiperf.common.constants import IS_WINDOWS
 from aiperf.common.mixins import AIPerfLoggerMixin
 
 
@@ -25,22 +25,26 @@ class SignalHandlerMixin(AIPerfLoggerMixin):
         loop = asyncio.get_running_loop()
         self.debug(f"Setting up SIGINT handler on loop {loop}")
 
-        def signal_handler(sig: int) -> None:
-            self.warning(f"Signal {sig} received, initiating graceful shutdown")
-            task = asyncio.create_task(callback(sig))
-            self._signal_tasks.add(task)
-            task.add_done_callback(self._signal_tasks.discard)
-
         # Windows ProactorEventLoop does not implement add_signal_handler.
         # Fall back to signal.signal(), which Windows supports for SIGINT.
         # The handler is dispatched on the main thread and re-enters the loop
-        # via run_coroutine_threadsafe to invoke the async callback.
-        if platform.system() == "Windows":
+        # via run_coroutine_threadsafe to invoke the async callback. The
+        # scheduled task is held by the loop, so no _signal_tasks tracking
+        # is needed on Windows.
+        if IS_WINDOWS:
+
             def windows_signal_handler(sig: int, _frame: object) -> None:
                 self.warning(f"Signal {sig} received, initiating graceful shutdown")
                 asyncio.run_coroutine_threadsafe(callback(sig), loop)
 
             signal.signal(signal.SIGINT, windows_signal_handler)
         else:
+
+            def signal_handler(sig: int) -> None:
+                self.warning(f"Signal {sig} received, initiating graceful shutdown")
+                task = asyncio.create_task(callback(sig))
+                self._signal_tasks.add(task)
+                task.add_done_callback(self._signal_tasks.discard)
+
             loop.add_signal_handler(signal.SIGINT, signal_handler, signal.SIGINT)
         self.debug("SIGINT handler installed successfully")

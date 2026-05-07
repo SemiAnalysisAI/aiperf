@@ -81,14 +81,14 @@ def _run_single_benchmark(
     # 4. Close terminal FDs in child processes (done in bootstrap.py)
 
     import multiprocessing
-    import platform
 
-    is_macos = platform.system() == "Darwin"
+    from aiperf.common.constants import IS_MACOS
+
     using_dashboard = service_config.ui_type == UIType.DASHBOARD
 
     # Force spawn method on macOS to prevent fork-related issues.
     # This should already be the default, but we'll set it explicitly just in case.
-    if is_macos and using_dashboard:
+    if IS_MACOS and using_dashboard:
         with contextlib.suppress(RuntimeError):
             multiprocessing.set_start_method("spawn", force=True)
 
@@ -110,7 +110,7 @@ def _run_single_benchmark(
 
         # Set FD_CLOEXEC on terminal file descriptors on macOS.
         # This ensures terminal FDs are closed when child processes spawn.
-        if is_macos:
+        if IS_MACOS:
             import fcntl
             import sys
 

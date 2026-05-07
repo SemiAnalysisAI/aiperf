@@ -34,7 +34,6 @@ Examples:
     print(f"Workers: {Environment.WORKER.CPU_UTILIZATION_FACTOR}")
 """
 
-import platform
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -47,6 +46,7 @@ from aiperf.common.config.config_validators import (
     parse_service_types,
     parse_str_or_csv_list,
 )
+from aiperf.common.constants import IS_WINDOWS
 from aiperf.plugin.enums import ServiceType
 
 _logger = AIPerfLogger(__name__)
@@ -722,7 +722,7 @@ class _ServiceSettings(BaseSettings):
     @model_validator(mode="after")
     def auto_disable_uvloop_on_windows(self) -> Self:
         """Automatically disable uvloop on Windows as it's not supported."""
-        if platform.system() == "Windows" and not self.DISABLE_UVLOOP:
+        if IS_WINDOWS and not self.DISABLE_UVLOOP:
             _logger.info(
                 "Windows detected: automatically disabling uvloop (not supported on Windows)"
             )

@@ -260,7 +260,7 @@ def log_tokenizer_validation_results(
         parts.append(f"{resolved} resolved")
     if elapsed_seconds is not None:
         parts.append(f"{elapsed_seconds:.1f}s")
-    logger.info(" • ".join(parts))
+    logger.info(" | ".join(parts))
 
 
 def _display_panel(title: str, content: str, console: Console | None = None) -> None:

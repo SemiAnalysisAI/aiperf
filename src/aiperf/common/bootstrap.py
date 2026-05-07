@@ -5,13 +5,13 @@ import asyncio
 import contextlib
 import multiprocessing
 import os
-import platform
 import signal
 import sys
 import uuid
 import warnings
 
 from aiperf.common.config import ServiceConfig, UserConfig
+from aiperf.common.constants import IS_MACOS, IS_WINDOWS
 from aiperf.common.environment import Environment
 from aiperf.plugin.enums import ServiceType
 
@@ -137,7 +137,7 @@ def bootstrap_and_run_service(
         # processes inherit terminal file descriptors and interfere with Textual's
         # terminal management, causing ASCII garbage and freezing when mouse events occur.
         # Only apply this in spawned child processes, NOT in the main process where Textual runs.
-        if platform.system() == "Darwin" and is_child_process:
+        if IS_MACOS and is_child_process:
             _redirect_stdio_to_devnull()
 
         # Initialize global RandomGenerator for reproducible random number generation
@@ -162,7 +162,7 @@ def bootstrap_and_run_service(
     # WindowsSelectorEventLoopPolicy before asyncio.run() creates the loop.
     # uvloop is already auto-disabled on Windows via environment.py, so this
     # branch only runs in the asyncio path.
-    if platform.system() == "Windows":
+    if IS_WINDOWS:
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     with contextlib.suppress(asyncio.CancelledError):

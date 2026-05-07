@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import hashlib
-import platform
 import tempfile
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -13,6 +12,7 @@ from typing_extensions import Self
 
 from aiperf.common.config.cli_parameter import CLIParameter, DisableCLI
 from aiperf.common.config.groups import Groups
+from aiperf.common.constants import IS_WINDOWS
 from aiperf.common.enums import CommAddress
 from aiperf.plugin.enums import CommunicationBackend
 
@@ -36,8 +36,8 @@ def _build_socket_address(path: Path | None, ipc_filename: str) -> str:
     a consistent contract and the hash inputs are stable.
     """
     if path is None:
-        raise ValueError("Path is required for IPC transport")
-    if platform.system() == "Windows":
+        raise ValueError("Path is required for socket address derivation")
+    if IS_WINDOWS:
         salt = f"{path}/{ipc_filename}"
         digest = hashlib.sha256(salt.encode()).hexdigest()
         port_offset = int(digest[:8], 16) % _WINDOWS_TCP_PORT_RANGE
