@@ -121,6 +121,94 @@ To compare results against vllm or sglang directly, run with the same
 tokenizer and `--isl`/`--osl` values; the server-side token counts will line
 up to within a token or two of decode-roundtrip drift.
 
+### Reproducing vLLM and SGLang Benchmarks
+
+`--random-range-ratio` is designed for direct head-to-head comparisons against
+`vllm bench serve` and `sglang.bench_serving`. Use the tables below to translate
+flags between tools.
+
+**vLLM (`vllm bench serve --dataset-name random`) → AIPerf:**
+
+| vLLM flag | AIPerf flag |
+|---|---|
+| `--random-input-len 1024` | `--isl 1024` |
+| `--random-output-len 128` | `--osl 128` |
+| `--random-range-ratio 0.3` | `--random-range-ratio 0.3` (mode `vllm` is default) |
+| `--num-prompts 1000` | `--request-count 1000` |
+| `--model <path>` | `--model <path>` |
+| `--seed 42` | `--random-seed 42` |
+
+```bash
+# vllm:
+vllm bench serve --model Qwen/Qwen3-0.6B \
+  --dataset-name random --random-input-len 1024 --random-output-len 128 \
+  --random-range-ratio 0.3 --num-prompts 1000 --seed 42
+
+# aiperf equivalent:
+aiperf profile --model Qwen/Qwen3-0.6B --url localhost:8000 \
+  --endpoint-type completions \
+  --isl 1024 --osl 128 --random-range-ratio 0.3 \
+  --request-count 1000 --random-seed 42
+```
+
+**SGLang (`sglang.bench_serving --dataset-name random`) → AIPerf:**
+
+| SGLang flag | AIPerf flag |
+|---|---|
+| `--random-input-len 1024` | `--isl 1024` |
+| `--random-output-len 128` | `--osl 128` |
+| `--random-range-ratio 0.5` | `--random-range-ratio 0.5 --random-range-ratio-mode sglang` |
+| `--num-prompts 1000` | `--request-count 1000` |
+| `--seed 42` | `--random-seed 42` |
+
+```bash
+# sglang:
+python -m sglang.bench_serving --model Qwen/Qwen3-0.6B \
+  --dataset-name random --random-input-len 1024 --random-output-len 128 \
+  --random-range-ratio 0.5 --num-prompts 1000 --seed 42
+
+# aiperf equivalent:
+aiperf profile --model Qwen/Qwen3-0.6B --url localhost:8000 \
+  --endpoint-type completions \
+  --isl 1024 --osl 128 --random-range-ratio 0.5 --random-range-ratio-mode sglang \
+  --request-count 1000 --random-seed 42
+```
+
+#### What matches today
+
+- **Sampling formula.** `vllm` mode uses the same
+  `[floor(mean*(1-r)), ceil(mean*(1+r))]` window vLLM samples from; `sglang`
+  mode uses SGLang's `[max(1, int(mean*r)), mean]` window.
+- **Special-token correction.** AIPerf subtracts
+  `tokenizer.num_special_tokens_to_add(pair=False)` from the ISL mean so the
+  server-side token count lines up with vLLM/SGLang for the same `--isl`.
+- **Endpoint shape.** vLLM and SGLang's random-dataset benchmarks both target
+  `/v1/completions`; use `--endpoint-type completions` for the most direct
+  comparison.
+
+#### What still differs
+
+- **Decode-roundtrip drift (±1–4 tokens).** vLLM has a verify-and-pad retry
+  loop that re-encodes each generated string and trims/pads to land on the
+  exact target token count. AIPerf currently does a one-shot decode, so the
+  wire-side token count can drift by a few tokens on BPE tokenizers and at
+  block-separator boundaries. SGLang has the same one-shot behavior, so AIPerf
+  is currently *closer to SGLang* than to vLLM on target-landing accuracy.
+- **Prefix mechanism.** vLLM prepends `prefix_token_ids` directly; AIPerf's
+  `--prefix-prompt-length` builds a string-form shared prefix (still
+  ISL-inclusive — see [Prefix Synthesis](prefix-synthesis.md)). The
+  distributions are similar in shape but not identical.
+
+#### Reproducing InferenceX `RANDOM_RANGE_RATIO` benchmarks
+
+The shipped InferenceX scripts (e.g., `dsr1_fp8_mi355x.sh`,
+`glm5_fp4_b200.sh`, `runners/launch_h100-cr.sh`) run with
+`RANDOM_RANGE_RATIO=0.8` against `/v1/completions` and **do not** pass
+`--use-chat-template` (it defaults to `False`). For those scripts, AIPerf
+parity is the same as the vLLM section above with `--random-range-ratio 0.8`.
+The chat-template caveat from earlier reviews only applies if you explicitly
+opt into `--use-chat-template` when re-running InferenceX yourself.
+
 ### Advanced: Prefix Synthesis
 
 For shared-prefix benchmarking (e.g., RAG scenarios where all requests share a cached
