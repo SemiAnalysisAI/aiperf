@@ -57,6 +57,7 @@ aiperf profile \
 - `--output-tokens-stddev`: Standard deviation for output token length (default: 0)
 - `--seq-dist`: Distribution of (ISL, OSL) pairs for mixed workload simulation (default: None). See [Sequence Length Distributions](sequence-distributions.md) for format details.
 - `--random-range-ratio`: Sample ISL and OSL uniformly from a symmetric window around the configured means, matching `vllm bench serve --random-range-ratio`. See [Uniform Range Sampling](#advanced-uniform-range-sampling-vllm-parity) below.
+- `--strict-isl`: Re-encode each generated prompt and pad/truncate up to 10 times so the wire-side token count exactly equals the sampled ISL. Off by default; enable for parity with `vllm bench serve` (see [Reproducing vLLM and SGLang Benchmarks](#reproducing-vllm-and-sglang-benchmarks)).
 - `--random-seed`: Seed for reproducible prompt generation (default: None)
 
 ### Advanced: Uniform Range Sampling (vllm / sglang parity)
@@ -186,14 +187,29 @@ aiperf profile --model Qwen/Qwen3-0.6B --url localhost:8000 \
   `/v1/completions`; use `--endpoint-type completions` for the most direct
   comparison.
 
+#### Closing the decode-roundtrip drift gap
+
+vLLM has a verify-and-pad retry loop that re-encodes each generated string
+and trims/pads it to land on the exact target token count. AIPerf does a
+one-shot decode by default, so the wire-side token count can drift by a few
+tokens on BPE tokenizers and at block-separator boundaries.
+
+To match vLLM exactly, add `--strict-isl`:
+
+```bash
+aiperf profile --model Qwen/Qwen3-0.6B --url localhost:8000 \
+  --endpoint-type completions \
+  --isl 1024 --osl 128 --random-range-ratio 0.3 \
+  --strict-isl \
+  --request-count 1000 --random-seed 42
+```
+
+`--strict-isl` re-encodes each prompt and pads/truncates up to 10 times
+(matching vLLM's cap). Without the flag, AIPerf's behavior matches SGLang,
+which also uses one-shot decode.
+
 #### What still differs
 
-- **Decode-roundtrip drift (±1–4 tokens).** vLLM has a verify-and-pad retry
-  loop that re-encodes each generated string and trims/pads to land on the
-  exact target token count. AIPerf currently does a one-shot decode, so the
-  wire-side token count can drift by a few tokens on BPE tokenizers and at
-  block-separator boundaries. SGLang has the same one-shot behavior, so AIPerf
-  is currently *closer to SGLang* than to vLLM on target-landing accuracy.
 - **Prefix mechanism.** vLLM prepends `prefix_token_ids` directly; AIPerf's
   `--prefix-prompt-length` builds a string-form shared prefix (still
   ISL-inclusive — see [Prefix Synthesis](prefix-synthesis.md)). The

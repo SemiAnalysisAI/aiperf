@@ -154,6 +154,116 @@ class TestPromptGeneratorComprehensive:
         generator.generate_prompt(1000)
 
     # ============================================================================
+    # strict_isl Tests
+    # ============================================================================
+
+    def test_generate_prompt_strict_off_skips_reencode(self, basic_config):
+        """With strict_isl disabled, generate_prompt does not call encode."""
+        tokenizer, config = basic_config
+        generator = PromptGenerator(config, tokenizer)
+
+        generator.tokenizer.encode.reset_mock()
+        generator.generate_prompt(5)
+        assert generator.tokenizer.encode.call_count == 0
+
+    def test_generate_prompt_strict_on_converges_immediately(
+        self, mock_tokenizer
+    ) -> None:
+        """A roundtrip-stable tokenizer hits target on the first encode."""
+        config = PromptConfig(
+            mean=100,
+            stddev=20,
+            block_size=512,
+            prefix_prompt=PrefixPromptConfig(pool_size=0, length=0),
+            strict_isl=True,
+        )
+        generator = PromptGenerator(config, mock_tokenizer)
+
+        generator.tokenizer.encode.reset_mock()
+        generator.tokenizer.decode.reset_mock()
+        result = generator.generate_prompt(5)
+
+        assert isinstance(result, str)
+        assert generator.tokenizer.encode.call_count == 1
+        # Initial decode + zero retries since lengths match.
+        assert generator.tokenizer.decode.call_count == 1
+
+    def test_generate_prompt_strict_on_truncates_when_too_long(
+        self, mock_tokenizer
+    ) -> None:
+        """Encoded length > target → truncate to target on next iteration."""
+        config = PromptConfig(
+            mean=100,
+            stddev=20,
+            block_size=512,
+            prefix_prompt=PrefixPromptConfig(pool_size=0, length=0),
+            strict_isl=True,
+        )
+        generator = PromptGenerator(config, mock_tokenizer)
+
+        # First encode reports 7 tokens (over by 2); subsequent encodes echo input length.
+        encode_responses = [list(range(7))]
+        generator.tokenizer.encode.side_effect = lambda text, **_: (
+            encode_responses.pop(0) if encode_responses else list(range(len(text.split())))
+        )
+
+        result = generator.generate_prompt(5)
+        assert isinstance(result, str)
+        # 1st encode: over-long; truncate. 2nd encode (retry) hits target.
+        assert generator.tokenizer.encode.call_count == 2
+
+    def test_generate_prompt_strict_on_pads_when_too_short(
+        self, mock_tokenizer
+    ) -> None:
+        """Encoded length < target → sample more corpus tokens, decode, retry."""
+        config = PromptConfig(
+            mean=100,
+            stddev=20,
+            block_size=512,
+            prefix_prompt=PrefixPromptConfig(pool_size=0, length=0),
+            strict_isl=True,
+        )
+        generator = PromptGenerator(config, mock_tokenizer)
+
+        # First encode reports 3 tokens (under by 2); retry echoes input length.
+        encode_responses = [list(range(3))]
+        generator.tokenizer.encode.side_effect = lambda text, **_: (
+            encode_responses.pop(0) if encode_responses else list(range(len(text.split())))
+        )
+
+        result = generator.generate_prompt(5)
+        assert isinstance(result, str)
+        # 1st encode: too short; pad+decode. 2nd encode (retry) hits target.
+        assert generator.tokenizer.encode.call_count == 2
+
+    def test_generate_prompt_strict_on_retry_cap_returns_best_effort(
+        self, mock_tokenizer
+    ) -> None:
+        """If encode never converges, loop caps at STRICT_ISL_MAX_RETRIES."""
+        from aiperf.dataset.generator.prompt import STRICT_ISL_MAX_RETRIES
+
+        config = PromptConfig(
+            mean=100,
+            stddev=20,
+            block_size=512,
+            prefix_prompt=PrefixPromptConfig(pool_size=0, length=0),
+            strict_isl=True,
+        )
+        generator = PromptGenerator(config, mock_tokenizer)
+
+        # Always under-report by 1 to keep the loop running.
+        generator.tokenizer.encode.side_effect = (
+            lambda text, **_: list(range(max(0, len(text.split()) - 1)))
+        )
+
+        result = generator.generate_prompt(5)
+        assert isinstance(result, str)
+        # STRICT_ISL_MAX_RETRIES iterations + a final residual-check encode.
+        assert (
+            generator.tokenizer.encode.call_count == STRICT_ISL_MAX_RETRIES + 1
+        )
+
+    # ============================================================================
     # _generate_cached_prompt Method Tests
     # ============================================================================
 

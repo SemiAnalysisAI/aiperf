@@ -340,6 +340,21 @@ class PromptConfig(BaseConfig):
         ),
     ] = RangeRatioMode.VLLM
 
+    strict_isl: Annotated[
+        bool,
+        Field(
+            default=False,
+            description="Re-encode each generated prompt and pad/truncate up to 10 times until the token count exactly matches the sampled ISL. "
+            "Closes the decode-roundtrip drift gap with `vllm bench serve`, which performs the same verify-and-pad step internally. "
+            "Off by default because the extra encode-per-prompt costs CPU; enable for accuracy-critical parity comparisons. "
+            "Only affects ISL — OSL is passed to the server as `max_tokens` and not re-verified.",
+        ),
+        CLIParameter(
+            name=("--strict-isl",),
+            group=Groups.INPUT_SEQUENCE_LENGTH,
+        ),
+    ] = False
+
     def get_sequence_distribution(
         self, num_special_tokens: int = 0
     ) -> "SequenceLengthSampler | None":

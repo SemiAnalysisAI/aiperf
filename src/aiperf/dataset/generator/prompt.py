@@ -18,6 +18,8 @@ from aiperf.dataset.generator.base import BaseGenerator
 
 DEFAULT_CORPUS_FILE = "assets/shakespeare.txt"
 
+STRICT_ISL_MAX_RETRIES = 10
+
 
 class PromptGenerator(BaseGenerator):
     """A class for generating synthetic prompts from a text corpus.
@@ -200,7 +202,36 @@ class PromptGenerator(BaseGenerator):
         Returns:
             A synthetic prompt as a string.
         """
-        return self.tokenizer.decode(self._sample_tokens(num_tokens))
+        text = self.tokenizer.decode(self._sample_tokens(num_tokens))
+        if self.config.strict_isl:
+            text = self._verify_and_pad_to_target(text, num_tokens)
+        return text
+
+    def _verify_and_pad_to_target(self, text: str, target: int) -> str:
+        """Re-encode ``text`` and pad/truncate until its token count equals ``target``.
+
+        Mirrors vllm's ``gen_prompt_decode_to_target_len``: re-encodes with
+        ``add_special_tokens=False``, truncates if too long, samples extra
+        corpus tokens and decodes again if too short. Caps at
+        ``STRICT_ISL_MAX_RETRIES`` iterations; logs the residual delta and
+        returns the best effort if convergence fails.
+        """
+        for _ in range(STRICT_ISL_MAX_RETRIES):
+            encoded = self.tokenizer.encode(text)
+            delta = target - len(encoded)
+            if delta == 0:
+                return text
+            if delta < 0:
+                text = self.tokenizer.decode(encoded[:target])
+            else:
+                text = self.tokenizer.decode(encoded + self._sample_tokens(delta))
+        residual = len(self.tokenizer.encode(text)) - target
+        if residual != 0:
+            self.debug(
+                lambda: f"strict_isl: did not converge after "
+                f"{STRICT_ISL_MAX_RETRIES} retries (residual={residual:+d})"
+            )
+        return text
 
     def _generate_cached_prompt(
         self,
