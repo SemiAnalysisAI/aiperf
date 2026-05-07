@@ -206,6 +206,8 @@ class TestPromptGeneratorComprehensive:
         generator.tokenizer.encode.side_effect = lambda text, **_: (
             encode_responses.pop(0) if encode_responses else list(range(len(text.split())))
         )
+        # Reset to drop the encode call made during corpus initialization.
+        generator.tokenizer.encode.reset_mock()
 
         result = generator.generate_prompt(5)
         assert isinstance(result, str)
@@ -230,6 +232,8 @@ class TestPromptGeneratorComprehensive:
         generator.tokenizer.encode.side_effect = lambda text, **_: (
             encode_responses.pop(0) if encode_responses else list(range(len(text.split())))
         )
+        # Reset to drop the encode call made during corpus initialization.
+        generator.tokenizer.encode.reset_mock()
 
         result = generator.generate_prompt(5)
         assert isinstance(result, str)
@@ -255,6 +259,8 @@ class TestPromptGeneratorComprehensive:
         generator.tokenizer.encode.side_effect = (
             lambda text, **_: list(range(max(0, len(text.split()) - 1)))
         )
+        # Reset to drop the encode call made during corpus initialization.
+        generator.tokenizer.encode.reset_mock()
 
         result = generator.generate_prompt(5)
         assert isinstance(result, str)
