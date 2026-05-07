@@ -118,17 +118,29 @@ class TestBuiltinTokenizer:
             assert tok.num_prompt_special_tokens() == 0
 
     def test_num_prompt_special_tokens_falls_back_when_hf_method_raises(self) -> None:
-        """A custom tokenizer whose method raises is treated as if absent."""
+        """Stubbed (NotImplementedError) or signature-mismatched (TypeError) methods
+        fall back to BOS heuristic; other exceptions propagate as real bugs."""
         from types import SimpleNamespace
 
-        def _boom(pair: bool = False) -> int:
-            raise RuntimeError("not implemented")
+        def _not_impl(pair: bool = False) -> int:
+            raise NotImplementedError
 
-        mock_inner = SimpleNamespace(
-            bos_token_id=1, eos_token_id=2, num_special_tokens_to_add=_boom
-        )
+        def _bad_sig() -> int:  # rejects pair kwarg → TypeError
+            return 0
+
+        bos = {"bos_token_id": 1, "eos_token_id": 2}
         tok = Tokenizer()
-        with patch.object(tok, "_tokenizer", mock_inner):
+        with patch.object(
+            tok,
+            "_tokenizer",
+            SimpleNamespace(**bos, num_special_tokens_to_add=_not_impl),
+        ):
+            assert tok.num_prompt_special_tokens() == 1
+        with patch.object(
+            tok,
+            "_tokenizer",
+            SimpleNamespace(**bos, num_special_tokens_to_add=_bad_sig),
+        ):
             assert tok.num_prompt_special_tokens() == 1
 
     def test_call_returns_input_ids(self, tokenizer: Tokenizer) -> None:

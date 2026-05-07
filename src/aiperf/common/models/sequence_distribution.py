@@ -553,6 +553,7 @@ class RangeRatioDistribution:
         osl_mean: int,
         input_ratio: float,
         output_ratio: float,
+        *,
         mode: RangeRatioMode = RangeRatioMode.VLLM,
         num_special_tokens: int = 0,
     ) -> None:

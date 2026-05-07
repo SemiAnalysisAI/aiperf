@@ -558,7 +558,7 @@ class Tokenizer:
         if callable(method):
             try:
                 return int(method(pair=False))
-            except Exception:
+            except (TypeError, NotImplementedError):
                 pass
         return 1 if self.bos_token_id is not None else 0
 
