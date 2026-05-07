@@ -537,8 +537,10 @@ class RangeRatioDistribution:
     bounds are computed (``adjusted_mean = max(1, isl_mean - num_special_tokens)``).
     This mirrors vllm's ``max(0, input_len - tokenizer.num_special_tokens_to_add())``
     pattern, ensuring ``--isl`` represents the total server-side token count
-    (content + BOS) rather than the content count alone. OSL is not adjusted because
-    ``max_tokens`` is passed directly to the server.
+    (content + special tokens added by the tokenizer's
+    ``build_inputs_with_special_tokens`` — typically BOS for Llama/Mistral,
+    CLS+SEP for BERT, EOS for T5) rather than the content count alone.
+    OSL is not adjusted because ``max_tokens`` is passed directly to the server.
 
     Input and output ratios may differ, allowing callers to express
     ``{"input": 0.3, "output": 0.5}``-style configurations. The minimum sampled

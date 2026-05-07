@@ -315,7 +315,7 @@ class PromptConfig(BaseConfig):
             '`{"input": 0.3, "output": 0.5}` for independent values. '
             "Uses `--osl` for the OSL mean, falling back to 128 when `--osl` is not set. "
             "Mutually exclusive with `--seq-dist`, `--isl-stddev`, and `--osl-stddev`. "
-            "When a tokenizer is configured, the ISL mean is automatically reduced by the number of BOS tokens the server will prepend, so `--isl` represents total server-side input tokens.",
+            "When a tokenizer is configured, the ISL mean is automatically reduced by `tokenizer.num_special_tokens_to_add(pair=False)` (e.g. 1 for Llama/Mistral BOS, 2 for BERT CLS+SEP, 0 for GPT-2 / tiktoken) so `--isl` represents total server-side input tokens, matching `vllm bench serve` semantics.",
         ),
         CLIParameter(
             name=("--random-range-ratio",),

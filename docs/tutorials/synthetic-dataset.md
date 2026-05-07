@@ -102,6 +102,25 @@ aiperf profile ... --random-range-ratio '{"input": 0.2, "output": 0.5}'
 When `--osl` is not set, OSL defaults to 128. This flag is mutually exclusive
 with `--seq-dist`, `--isl-stddev`, and `--osl-stddev`.
 
+**Server-side ISL semantics.** When a tokenizer is configured, AIPerf reduces
+the ISL mean by `tokenizer.num_special_tokens_to_add(pair=False)` before
+sampling the window — matching the same correction `vllm bench serve` applies
+internally. This means `--isl 1024` produces requests that arrive at the
+server with ~1024 total tokens (content + special tokens), not 1024 content
+tokens plus whatever specials the server prepends. The correction is
+tokenizer-specific:
+
+| Tokenizer family | Auto-adjustment | Example |
+|---|---|---|
+| Llama, Mistral, Qwen | `-1` (BOS) | `--isl 1024` → samples around content len 1023 |
+| BERT-style | `-2` (CLS + SEP) | `--isl 1024` → samples around content len 1022 |
+| GPT-2, tiktoken | `0` (no auto-special tokens) | `--isl 1024` → samples around 1024 |
+| T5 | `-1` (EOS appended) | `--isl 1024` → samples around 1023 |
+
+To compare results against vllm or sglang directly, run with the same
+tokenizer and `--isl`/`--osl` values; the server-side token counts will line
+up to within a token or two of decode-roundtrip drift.
+
 ### Advanced: Prefix Synthesis
 
 For shared-prefix benchmarking (e.g., RAG scenarios where all requests share a cached
