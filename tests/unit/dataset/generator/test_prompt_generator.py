@@ -204,7 +204,9 @@ class TestPromptGeneratorComprehensive:
         # First encode reports 7 tokens (over by 2); subsequent encodes echo input length.
         encode_responses = [list(range(7))]
         generator.tokenizer.encode.side_effect = lambda text, **_: (
-            encode_responses.pop(0) if encode_responses else list(range(len(text.split())))
+            encode_responses.pop(0)
+            if encode_responses
+            else list(range(len(text.split())))
         )
         # Reset to drop the encode call made during corpus initialization.
         generator.tokenizer.encode.reset_mock()
@@ -230,7 +232,9 @@ class TestPromptGeneratorComprehensive:
         # First encode reports 3 tokens (under by 2); retry echoes input length.
         encode_responses = [list(range(3))]
         generator.tokenizer.encode.side_effect = lambda text, **_: (
-            encode_responses.pop(0) if encode_responses else list(range(len(text.split())))
+            encode_responses.pop(0)
+            if encode_responses
+            else list(range(len(text.split())))
         )
         # Reset to drop the encode call made during corpus initialization.
         generator.tokenizer.encode.reset_mock()
@@ -256,8 +260,8 @@ class TestPromptGeneratorComprehensive:
         generator = PromptGenerator(config, mock_tokenizer)
 
         # Always under-report by 1 to keep the loop running.
-        generator.tokenizer.encode.side_effect = (
-            lambda text, **_: list(range(max(0, len(text.split()) - 1)))
+        generator.tokenizer.encode.side_effect = lambda text, **_: list(
+            range(max(0, len(text.split()) - 1))
         )
         # Reset to drop the encode call made during corpus initialization.
         generator.tokenizer.encode.reset_mock()
@@ -265,9 +269,7 @@ class TestPromptGeneratorComprehensive:
         result = generator.generate_prompt(5)
         assert isinstance(result, str)
         # STRICT_ISL_MAX_RETRIES iterations + a final residual-check encode.
-        assert (
-            generator.tokenizer.encode.call_count == STRICT_ISL_MAX_RETRIES + 1
-        )
+        assert generator.tokenizer.encode.call_count == STRICT_ISL_MAX_RETRIES + 1
 
     # ============================================================================
     # _generate_cached_prompt Method Tests
