@@ -18,9 +18,12 @@ from aiperf.plugin.enums import CommunicationBackend
 
 # Windows fallback: ZMQ does not support ipc:// on Windows. Use TCP loopback
 # with a deterministic port derived from a hash of the would-be IPC path, so
-# bind and connect sides agree without explicit coordination.
+# bind and connect sides agree without explicit coordination. Range chosen to
+# stay below the OS ephemeral-port range (49152+ on Linux/macOS/Win10+) and to
+# keep birthday-paradox collision probability low for AIPerf's ~15 sockets:
+# P(collision) ≈ 1 - exp(-n^2 / (2 * RANGE)). At RANGE=20000, n=15 → ~0.56%.
 _WINDOWS_TCP_BASE_PORT = 5556
-_WINDOWS_TCP_PORT_RANGE = 10000
+_WINDOWS_TCP_PORT_RANGE = 20000
 
 
 def _build_socket_address(path: Path | None, ipc_filename: str) -> str:
