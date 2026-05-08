@@ -375,6 +375,7 @@ async def aiperf_runner(
         env = {
             **os.environ,
             "PYTHONUNBUFFERED": "1",
+            "PYTHONFAULTHANDLER": "1",
         }
 
         # Capture stdout/stderr for validation error tests
