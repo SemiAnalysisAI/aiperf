@@ -132,12 +132,23 @@ def bootstrap_and_run_service(
             log_queue, service.service_id, service_config, user_config
         )
 
-        # NOTE: Prevent child processes from accessing parent's terminal on macOS.
-        # This solves the macOS terminal corruption issue with Textual UI where child
-        # processes inherit terminal file descriptors and interfere with Textual's
-        # terminal management, causing ASCII garbage and freezing when mouse events occur.
-        # Only apply this in spawned child processes, NOT in the main process where Textual runs.
-        if IS_MACOS and is_child_process:
+        # NOTE: Redirect child stdio in spawned children, NOT the main process.
+        #
+        # macOS: avoid Textual UI terminal corruption — children inheriting the
+        # parent's terminal FDs interfere with Textual's terminal management,
+        # causing ASCII garbage and freezes on mouse events.
+        #
+        # Windows: when aiperf is launched as a subprocess with stdout/stderr =
+        # subprocess.PIPE (e.g. from the integration test runner), Windows
+        # marks those pipe handles inheritable. multiprocessing's spawn launcher
+        # then propagates them into every grandchild service. At shutdown the
+        # grandchildren still hold those pipe handles, which causes either
+        # process.communicate() to hang forever waiting for EOF, or a
+        # STATUS_ACCESS_VIOLATION (0xC0000005) during DLL_PROCESS_DETACH.
+        # Releasing the inherited pipe FDs to NUL early makes shutdown clean.
+        # Service log output is already routed through the multiprocessing
+        # log_queue (setup_child_process_logging above), so this loses nothing.
+        if (IS_MACOS or IS_WINDOWS) and is_child_process:
             _redirect_stdio_to_devnull()
 
         # Initialize global RandomGenerator for reproducible random number generation
