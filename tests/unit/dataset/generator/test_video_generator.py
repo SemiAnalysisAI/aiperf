@@ -268,11 +268,10 @@ class TestVideoGenerator:
             # Verify output destination
             output_call = mock_input.output.call_args
             if video_format == VideoFormat.MP4:
-                # Use ``os.path.join`` so the comparison works on Windows
-                # where ``Path(temp_dir) / "output.mp4"`` produces backslashes.
-                import os
-
-                assert output_call[0][0] == os.path.join(temp_dir, "output.mp4")
+                # Match production's ``str(Path(temp_dir) / "output.mp4")`` —
+                # on Windows ``WindowsPath`` normalizes ``/`` to ``\\`` for
+                # the entire path, not just the joined separator.
+                assert output_call[0][0] == str(Path(temp_dir) / "output.mp4")
             else:
                 assert output_call[0][0] == "pipe:"
 
