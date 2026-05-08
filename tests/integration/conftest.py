@@ -134,6 +134,52 @@ def pytest_runtest_teardown(item):
         print(f"{'=' * 80}\n")
 
 
+def _terminate_process_tree(pid: int, timeout_s: float = 5.0) -> None:
+    """Terminate a process and every descendant. Cross-platform.
+
+    On Linux/macOS, ``Process.terminate()`` only sends SIGTERM to the parent
+    — child processes are reparented to init and continue running. On
+    Windows, ``TerminateProcess`` similarly doesn't touch the parent's
+    children. Both leak orphans for our test harness, which then prevents
+    pytest from exiting (the multiprocessing resource tracker waits for
+    them).
+
+    Walk the process tree via psutil, send terminate, then escalate to kill
+    after the timeout.
+    """
+    import psutil
+
+    try:
+        parent = psutil.Process(pid)
+    except psutil.NoSuchProcess:
+        return
+
+    try:
+        children = parent.children(recursive=True)
+    except psutil.NoSuchProcess:
+        children = []
+
+    # Terminate children first so the parent doesn't try to spawn replacements.
+    for child in children:
+        try:
+            child.terminate()
+        except psutil.NoSuchProcess:
+            pass
+
+    try:
+        parent.terminate()
+    except psutil.NoSuchProcess:
+        pass
+
+    # Wait for graceful exit, then escalate.
+    _gone, alive = psutil.wait_procs([parent, *children], timeout=timeout_s)
+    for proc in alive:
+        try:
+            proc.kill()
+        except psutil.NoSuchProcess:
+            pass
+
+
 def _cancel_aiperf_for_timeout(process: asyncio.subprocess.Process) -> None:
     """Cancel a timed-out AIPerf subprocess in a platform-correct way.
 
@@ -209,7 +255,9 @@ async def create_server(**kwargs: Any) -> AsyncIterator[AIPerfMockServer]:
             else:
                 # Loop completed without break - all health checks failed
                 if process.exitcode is None:
-                    process.terminate()
+                    # See _terminate_process_tree comment for why we walk
+                    # children rather than just terminating the master.
+                    await asyncio.to_thread(_terminate_process_tree, process.pid, 5.0)
                     try:
                         await asyncio.wait_for(
                             asyncio.to_thread(process.join, timeout=5.0),
@@ -245,7 +293,12 @@ async def create_server(**kwargs: Any) -> AsyncIterator[AIPerfMockServer]:
 
     finally:
         if process.exitcode is None:
-            process.terminate()
+            # Terminate the entire process tree — uvicorn's master spawns
+            # ``workers`` child processes which are NOT killed by terminating
+            # the master alone. Without this, leaked uvicorn workers keep
+            # pytest's main process alive forever after a test finishes
+            # (hangs cleanup on Windows in particular).
+            await asyncio.to_thread(_terminate_process_tree, process.pid, 5.0)
             try:
                 await asyncio.wait_for(
                     asyncio.to_thread(process.join, timeout=5.0),
