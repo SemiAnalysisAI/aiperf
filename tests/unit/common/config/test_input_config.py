@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 import tempfile
-from pathlib import PosixPath
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -63,7 +63,7 @@ def test_input_config_custom_values():
 
         assert config.extra == [("key", "value")]
         assert config.headers == [("Authorization", "Bearer token")]
-        assert config.file == PosixPath(temp_file.name)
+        assert config.file == Path(temp_file.name)
         assert config.random_seed == 42
         assert config.custom_dataset_type == CustomDatasetType.MULTI_TURN
 
@@ -74,7 +74,7 @@ def test_input_config_file_validation():
     """
     with tempfile.NamedTemporaryFile(suffix=".jsonl") as temp_file:
         config = InputConfig(file=temp_file.name)
-        assert config.file == PosixPath(temp_file.name)
+        assert config.file == Path(temp_file.name)
 
     with pytest.raises(ValidationError):
         InputConfig(file=12345)  # Invalid file (non-string value)
@@ -156,7 +156,7 @@ def test_custom_dataset_type_with_file_succeeds():
             custom_dataset_type=CustomDatasetType.MULTI_TURN, file=temp_file.name
         )
         assert config.custom_dataset_type == CustomDatasetType.MULTI_TURN
-        assert config.file == PosixPath(temp_file.name)
+        assert config.file == Path(temp_file.name)
 
 
 def test_file_without_custom_dataset_type_succeeds():
@@ -165,7 +165,7 @@ def test_file_without_custom_dataset_type_succeeds():
     """
     with tempfile.NamedTemporaryFile(suffix=".jsonl") as temp_file:
         config = InputConfig(file=temp_file.name, custom_dataset_type=None)
-        assert config.file == PosixPath(temp_file.name)
+        assert config.file == Path(temp_file.name)
         assert config.custom_dataset_type is None
 
 

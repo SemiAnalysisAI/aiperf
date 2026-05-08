@@ -15,6 +15,37 @@ from aiperf.controller.multiprocess_service_manager import (
 from aiperf.plugin.enums import ServiceType
 
 
+class TestForkProcessRemovalSmokeTest:
+    """Bug 1 regression: ``ForkProcess`` import was Linux-only.
+
+    The original ``Process | SpawnProcess | ForkProcess | None`` field type
+    pulled ``ForkProcess`` from ``multiprocessing.context``, which fails at
+    module-load time on Windows (``ImportError: cannot import name
+    'ForkProcess'``). Replaced with ``Process | None`` — every Process
+    subclass inherits from Process, no subclass dispatch in the codebase.
+    """
+
+    def test_module_imports_on_any_platform(self) -> None:
+        """Importing this module must succeed on every platform AIPerf
+        supports — ForkProcess is no longer in the import chain."""
+        from aiperf.controller import multiprocess_service_manager
+
+        assert multiprocess_service_manager.MultiProcessRunInfo is not None
+
+    def test_field_accepts_a_plain_process(self) -> None:
+        """The ``process`` field accepts any subclass of Process, including
+        SpawnProcess (the actual runtime type AIPerf produces)."""
+        from multiprocessing import Process
+
+        info = MultiProcessRunInfo.model_construct(
+            process=Process(target=lambda: None),
+            service_type=ServiceType.SYSTEM_CONTROLLER,
+            run_id="test",
+        )
+        assert info.process is not None
+        # Don't actually start; just confirm assignment works.
+
+
 class TestMultiProcessServiceManager:
     """Test MultiProcessServiceManager process failure scenarios."""
 

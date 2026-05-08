@@ -134,6 +134,22 @@ def pytest_runtest_teardown(item):
         print(f"{'=' * 80}\n")
 
 
+def _cancel_aiperf_for_timeout(process: asyncio.subprocess.Process) -> None:
+    """Cancel a timed-out AIPerf subprocess in a platform-correct way.
+
+    On Linux/macOS, send SIGINT so AIPerf's signal handler runs cleanup and
+    flushes partial logs before exiting. On Windows, ``process.send_signal``
+    rejects SIGINT with ``ValueError: Unsupported signal: 2`` because the
+    asyncio Popen wrapper only allows SIGTERM, CTRL_C_EVENT, and
+    CTRL_BREAK_EVENT. We're already in the timeout branch (test is failing),
+    so graceful shutdown is not required — fall back to ``terminate()``.
+    """
+    if sys.platform == "win32":
+        process.terminate()
+    else:
+        process.send_signal(signal.SIGINT)
+
+
 def get_venv_python() -> str:
     """Get the Python executable from the virtual environment."""
     # Check if we're in a virtual environment
@@ -327,7 +343,7 @@ async def aiperf_runner(
             stderr = stderr_bytes.decode("utf-8", errors="replace")
         except asyncio.TimeoutError as e:
             _logger.warning(f"AIPerf timed out after {timeout}s, sending SIGINT")
-            process.send_signal(signal.SIGINT)
+            _cancel_aiperf_for_timeout(process)
             try:
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(
                     process.communicate(), timeout=5

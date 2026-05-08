@@ -9,6 +9,7 @@ import uuid
 from abc import ABC
 
 from aiperf.common.config import ServiceConfig, UserConfig
+from aiperf.common.constants import IS_WINDOWS
 from aiperf.common.enums import CommandType, LifecycleState
 from aiperf.common.exceptions import ServiceError
 from aiperf.common.hooks import on_command
@@ -144,5 +145,7 @@ class BaseService(HealthServerMixin, CommandHandlerMixin, ProcessHealthMixin, AB
         self.stopped_event.set()
         # TODO: This is a hack to ensure that the process is killed.
         #       We should find a better way to do this.
-        os.kill(os.getpid(), signal.SIGKILL)
+        # Windows has no SIGKILL — `signal.SIGKILL` raises AttributeError on
+        # Windows. Use SIGTERM as the closest cross-platform unconditional kill.
+        os.kill(os.getpid(), signal.SIGTERM if IS_WINDOWS else signal.SIGKILL)
         raise asyncio.CancelledError(f"Killed {self}")
