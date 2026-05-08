@@ -9,7 +9,7 @@ import signal
 import socket
 import sys
 from collections.abc import AsyncGenerator, AsyncIterator, Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from multiprocessing.context import SpawnProcess
 from pathlib import Path
@@ -52,7 +52,11 @@ class IntegrationTestDefaults:
     workers_max: int = 1
     concurrency: int = 2
     request_count: int = 10
-    timeout: float = 200.0
+    # 300s accommodates slow Windows multiprocessing.spawn — long sweeps
+    # (e.g. test_sweep_level_statistics with 12 iterations) take ~210s on
+    # Windows vs ~140s on POSIX. Pair with pytest --timeout >= 360 so the
+    # in-fixture SIGINT/terminate/kill cascade fires before pytest gives up.
+    timeout: float = 300.0
     ui: str = "simple"
 
 
@@ -161,23 +165,17 @@ def _terminate_process_tree(pid: int, timeout_s: float = 5.0) -> None:
 
     # Terminate children first so the parent doesn't try to spawn replacements.
     for child in children:
-        try:
+        with suppress(psutil.NoSuchProcess):
             child.terminate()
-        except psutil.NoSuchProcess:
-            pass
 
-    try:
+    with suppress(psutil.NoSuchProcess):
         parent.terminate()
-    except psutil.NoSuchProcess:
-        pass
 
     # Wait for graceful exit, then escalate.
     _gone, alive = psutil.wait_procs([parent, *children], timeout=timeout_s)
     for proc in alive:
-        try:
+        with suppress(psutil.NoSuchProcess):
             proc.kill()
-        except psutil.NoSuchProcess:
-            pass
 
 
 def _cancel_aiperf_for_timeout(process: asyncio.subprocess.Process) -> None:

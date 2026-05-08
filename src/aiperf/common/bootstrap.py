@@ -132,22 +132,8 @@ def bootstrap_and_run_service(
             log_queue, service.service_id, service_config, user_config
         )
 
-        # NOTE: Redirect child stdio in spawned children, NOT the main process.
-        #
-        # macOS: avoid Textual UI terminal corruption — children inheriting the
-        # parent's terminal FDs interfere with Textual's terminal management,
-        # causing ASCII garbage and freezes on mouse events.
-        #
-        # Windows: when aiperf is launched as a subprocess with stdout/stderr =
-        # subprocess.PIPE (e.g. from the integration test runner), Windows
-        # marks those pipe handles inheritable. multiprocessing's spawn launcher
-        # then propagates them into every grandchild service. At shutdown the
-        # grandchildren still hold those pipe handles, which causes either
-        # process.communicate() to hang forever waiting for EOF, or a
-        # STATUS_ACCESS_VIOLATION (0xC0000005) during DLL_PROCESS_DETACH.
-        # Releasing the inherited pipe FDs to NUL early makes shutdown clean.
-        # Service log output is already routed through the multiprocessing
-        # log_queue (setup_child_process_logging above), so this loses nothing.
+        # Release inherited terminal/pipe FDs in spawned children. See
+        # _redirect_stdio_to_devnull for the per-platform reasoning.
         if (IS_MACOS or IS_WINDOWS) and is_child_process:
             _redirect_stdio_to_devnull()
 
@@ -197,10 +183,21 @@ def _configure_event_loop_policy_for_platform() -> None:
 
 
 def _redirect_stdio_to_devnull() -> None:
-    """Redirect stdin/stdout/stderr to /dev/null for macOS child processes.
+    """Redirect stdin/stdout/stderr to NUL/devnull in spawned child processes.
 
-    Prevents child processes from accessing the parent's terminal, which causes
-    Textual UI corruption (ASCII garbage and freezes from inherited terminal FDs).
+    macOS: avoid Textual UI terminal corruption — children inheriting the
+    parent's terminal FDs interfere with Textual's terminal management,
+    causing ASCII garbage and freezes on mouse events.
+
+    Windows: when aiperf is launched as a subprocess with stdout/stderr =
+    ``subprocess.PIPE`` (e.g. from the integration test runner), Windows marks
+    those pipe handles inheritable. ``multiprocessing.spawn`` then propagates
+    them into every grandchild service. At shutdown the grandchildren still
+    hold those pipe handles, which causes either ``process.communicate()`` to
+    hang forever waiting for EOF, or a ``STATUS_ACCESS_VIOLATION`` (0xC0000005)
+    during ``DLL_PROCESS_DETACH``. Releasing the inherited pipe FDs to NUL
+    early makes shutdown clean. Service log output is already routed through
+    the multiprocessing log_queue, so this loses nothing.
     """
     # Redirect at the OS level so spawned grandchild processes (e.g.
     # ProcessPoolExecutor workers via 'spawn' context) inherit safe FDs
