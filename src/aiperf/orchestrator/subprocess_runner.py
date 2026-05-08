@@ -7,10 +7,34 @@ It's used by MultiRunOrchestrator to execute each run in complete isolation,
 allowing the SystemController to call os._exit() without affecting the orchestrator.
 """
 
+import os
 import sys
 from pathlib import Path
 
 import orjson
+
+from aiperf.common.constants import IS_WINDOWS
+
+
+def _release_inherited_pipes_on_windows() -> None:
+    """Redirect stdin/stdout/stderr to NUL on Windows.
+
+    See bootstrap.py::_redirect_stdio_to_devnull for the full rationale.
+    Sweep iterations are spawned via subprocess.run with stdout=sys.stdout
+    inherited from the orchestrator master, which on Windows propagates
+    pytest's subprocess.PIPE all the way down. The iteration's own grandchild
+    workers already redirect via the bootstrap fix, but the iteration process
+    itself still holds the inherited pipe handle, so its os._exit() can hang
+    or segfault during DLL_PROCESS_DETACH. Releasing the inherited FDs to NUL
+    here unblocks shutdown for that intermediate process.
+    """
+    devnull_fd = os.open(os.devnull, os.O_RDWR)
+    for fd in (0, 1, 2):
+        os.dup2(devnull_fd, fd)
+    os.close(devnull_fd)
+    sys.stdin = os.fdopen(0, "r", closefd=False)
+    sys.stdout = os.fdopen(1, "w", closefd=False)
+    sys.stderr = os.fdopen(2, "w", closefd=False)
 
 
 def main() -> None:
@@ -30,6 +54,9 @@ def main() -> None:
         1: Benchmark failed (errors occurred)
         Other: Unexpected error or signal
     """
+    if IS_WINDOWS:
+        _release_inherited_pipes_on_windows()
+
     if len(sys.argv) != 2:
         print(
             "Usage: python -m aiperf.orchestrator.subprocess_runner <config.json>",
