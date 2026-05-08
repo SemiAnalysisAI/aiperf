@@ -421,6 +421,9 @@ async def aiperf_runner(
                     process.kill()
                     stdout = ""
                     stderr = ""
+            print(f"\n========== AIPerf STDOUT (timed out) ==========\n{stdout}")
+            print(f"\n========== AIPerf STDERR (timed out) ==========\n{stderr}")
+            print("=" * 60, flush=True)
             raise RuntimeError(f"AIPerf timed out after {timeout}s") from e
 
         return AIPerfRunnerResult(
