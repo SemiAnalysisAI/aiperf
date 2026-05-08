@@ -138,9 +138,16 @@ class OutputConfig(BaseConfig):
 
         base_path = self.profile_export_prefix
         # profile_export_prefix is a filename prefix — artifact_directory controls the directory.
-        # If the user passes an absolute path, use only the name so that per-run artifact
-        # isolation (orchestrator sets artifact_directory per run) is not bypassed.
-        base_str = base_path.name if base_path.is_absolute() else str(base_path)
+        # If the user passes a rooted/absolute-looking path, use only the name so that
+        # per-run artifact isolation (orchestrator sets artifact_directory per run) is
+        # not bypassed.
+        #
+        # Use ``anchor`` instead of ``is_absolute()`` because the latter requires a
+        # drive letter on Windows (``WindowsPath("/tmp/foo").is_absolute() == False``).
+        # ``anchor`` is truthy for any path with a drive AND/OR root, so users on
+        # Windows passing ``/tmp/foo`` get the same "treat as absolute" behavior they
+        # see on Linux/macOS.
+        base_str = base_path.name if base_path.anchor else str(base_path)
 
         # Check complex suffixes first (longest to shortest) to avoid double-suffixing
         # e.g., if user passes "foo_raw.jsonl", we want "foo" not "foo_raw"

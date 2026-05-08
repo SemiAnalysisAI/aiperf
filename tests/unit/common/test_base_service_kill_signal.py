@@ -13,12 +13,19 @@ test runner.
 from __future__ import annotations
 
 import signal
+import sys
 from unittest.mock import patch
+
+import pytest
 
 
 class TestKillSignalSelection:
     """The kill_signal expression in BaseService._kill must avoid SIGKILL on Windows."""
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="signal.SIGKILL doesn't exist on Windows; the Unix branch can't be exercised here",
+    )
     def test_uses_sigkill_on_unix(self) -> None:
         """On non-Windows the kill signal is SIGKILL (the unconditional Unix kill)."""
         with patch("aiperf.common.base_service.IS_WINDOWS", False):
