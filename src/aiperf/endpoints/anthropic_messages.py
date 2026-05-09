@@ -122,6 +122,7 @@ class AnthropicMessagesEndpoint(BaseEndpoint):
         messages.extend(self.build_messages(turns))
 
         raw_tools = self._latest_turn_attr(turns, "raw_tools")
+        raw_system = self._latest_turn_attr(turns, "raw_system")
         max_tokens = self._latest_turn_attr(turns, "max_tokens")
         extra_body = self._latest_turn_attr(turns, "extra_body")
         model_name = self._latest_turn_attr(turns, "model")
@@ -135,7 +136,12 @@ class AnthropicMessagesEndpoint(BaseEndpoint):
             "stream": model_endpoint.endpoint.streaming,
         }
 
-        if request_info.system_message:
+        # raw_system (Turn-level list-of-blocks) wins over the
+        # conversation-level system_message string. Lets callers attach
+        # cache_control / Anthropic-specific extensions per-block.
+        if raw_system is not None:
+            payload["system"] = raw_system
+        elif request_info.system_message:
             payload["system"] = request_info.system_message
 
         if raw_tools is not None:
@@ -206,34 +212,48 @@ class AnthropicMessagesEndpoint(BaseEndpoint):
         return result
 
     def build_assistant_turn(self, record: RequestRecord) -> Turn | None:
-        """Capture text + ``tool_use`` blocks from an Anthropic response for replay.
+        """Capture text + thinking + ``tool_use`` blocks from an Anthropic
+        response for replay.
 
-        Walks the raw responses on ``record``, accumulating text deltas
-        and reassembling streaming ``tool_use`` blocks (``input_json_delta``
-        fragments concatenated per ``index``), then returns a Turn whose
-        ``raw_messages`` re-renders as an assistant message carrying the
-        full content array - text plus tool_use blocks - so a FORK-mode
-        DAG child inheriting the parent's history sees the parent's
-        complete reply, not just the text.
+        Walks the raw responses on ``record``, accumulating text deltas,
+        reassembling streaming ``thinking`` blocks (``thinking_delta`` +
+        ``signature_delta`` per index) and ``tool_use`` blocks
+        (``input_json_delta`` fragments per index), then returns a Turn
+        whose ``raw_messages`` re-renders as an assistant message carrying
+        the full content array - thinking, then text, then tool_use - so a
+        FORK-mode DAG child inheriting the parent's history sees the
+        parent's complete reply, not just the text.
 
-        Falls back to the base text-only behaviour when no ``tool_use``
-        blocks are present, so callers that don't use tools see no
-        behavioural change.
+        Falls back to the base text-only behaviour when neither thinking
+        nor tool_use blocks are present, so callers that don't use either
+        feature see no behavioural change.
         """
         text_parts: list[str] = []
+        thinking_blocks_by_index: dict[int, dict[str, Any]] = {}
         tool_uses_by_index: dict[int, dict[str, Any]] = {}
 
         for response in record.responses:
             json_obj = response.get_json()
             if not json_obj:
                 continue
-            _internals.absorb_event(json_obj, text_parts, tool_uses_by_index)
+            _internals.absorb_event(
+                json_obj,
+                text_parts,
+                thinking_blocks_by_index,
+                tool_uses_by_index,
+            )
 
-        if not tool_uses_by_index:
+        if not thinking_blocks_by_index and not tool_uses_by_index:
             return super().build_assistant_turn(record)
 
-        text = "".join(text_parts)
         content_blocks: list[dict[str, Any]] = []
+        # Anthropic emits thinking before text/tool_use; preserve that order
+        # so the wire shape matches a fresh assistant reply.
+        for idx in sorted(thinking_blocks_by_index):
+            content_blocks.append(
+                _internals.finalise_thinking(thinking_blocks_by_index[idx])
+            )
+        text = "".join(text_parts)
         if text:
             content_blocks.append({"type": "text", "text": text})
         for idx in sorted(tool_uses_by_index):

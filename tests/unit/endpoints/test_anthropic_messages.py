@@ -899,3 +899,210 @@ class TestAnthropicMessagesBuildAssistantTurn:
         assert msg["content"][0] == {"type": "text", "text": "thinking..."}
         assert msg["content"][1]["type"] == "tool_use"
         assert msg["content"][1]["input"] == {}
+
+    def test_non_streaming_preserves_unknown_tool_use_fields(self, endpoint):
+        # Real Claude Code traffic carries a ``caller`` field on tool_use
+        # blocks beyond the spec's id/name/input. The accumulator copies
+        # every field so finalise_tool_use round-trips it verbatim.
+        record = self._record(
+            [
+                {
+                    "type": "message",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "tool_1",
+                            "name": "Bash",
+                            "input": {"command": "ls"},
+                            "caller": {"type": "direct"},
+                        }
+                    ],
+                }
+            ]
+        )
+        turn = endpoint.build_assistant_turn(record)
+        tool_use = turn.raw_messages[0]["content"][0]
+        assert tool_use["caller"] == {"type": "direct"}
+        assert tool_use["name"] == "Bash"
+        assert tool_use["input"] == {"command": "ls"}
+
+    def test_streaming_preserves_unknown_tool_use_fields(self, endpoint):
+        # Streaming content_block_start envelope carries ``caller``;
+        # _absorb_content_block_start copies all envelope fields.
+        record = self._record(
+            [
+                {
+                    "type": "content_block_start",
+                    "index": 0,
+                    "content_block": {
+                        "type": "tool_use",
+                        "id": "t1",
+                        "name": "Bash",
+                        "input": {},
+                        "caller": {"type": "direct"},
+                    },
+                },
+                {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "input_json_delta", "partial_json": "{}"},
+                },
+            ]
+        )
+        turn = endpoint.build_assistant_turn(record)
+        tool_use = turn.raw_messages[0]["content"][0]
+        assert tool_use["caller"] == {"type": "direct"}
+
+    def test_streaming_thinking_then_tool_use(self, endpoint):
+        # Real Anthropic streaming sequence: thinking content_block at idx 0
+        # (with thinking_delta + signature_delta), tool_use at idx 1.
+        # Override path captures both; thinking comes first in output.
+        record = self._record(
+            [
+                {
+                    "type": "content_block_start",
+                    "index": 0,
+                    "content_block": {
+                        "type": "thinking",
+                        "thinking": "",
+                        "signature": "",
+                    },
+                },
+                {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "thinking_delta", "thinking": "Let me think"},
+                },
+                {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "signature_delta", "signature": "sig_part_1"},
+                },
+                {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "signature_delta", "signature": "_part_2"},
+                },
+                {
+                    "type": "content_block_start",
+                    "index": 1,
+                    "content_block": {
+                        "type": "tool_use",
+                        "id": "t1",
+                        "name": "search",
+                        "input": {},
+                    },
+                },
+                {
+                    "type": "content_block_delta",
+                    "index": 1,
+                    "delta": {"type": "input_json_delta", "partial_json": '{"q":"x"}'},
+                },
+            ]
+        )
+        turn = endpoint.build_assistant_turn(record)
+        assert turn is not None
+        blocks = turn.raw_messages[0]["content"]
+        # Thinking block first (its index 0 < tool_use's index 1).
+        assert blocks[0]["type"] == "thinking"
+        assert blocks[0]["thinking"] == "Let me think"
+        assert blocks[0]["signature"] == "sig_part_1_part_2"
+        assert blocks[1]["type"] == "tool_use"
+        assert blocks[1]["input"] == {"q": "x"}
+
+    def test_non_streaming_thinking_block_captured(self, endpoint):
+        record = self._record(
+            [
+                {
+                    "type": "message",
+                    "content": [
+                        {
+                            "type": "thinking",
+                            "thinking": "reasoning text",
+                            "signature": "sig123",
+                        },
+                        {
+                            "type": "tool_use",
+                            "id": "t1",
+                            "name": "f",
+                            "input": {},
+                        },
+                    ],
+                }
+            ]
+        )
+        turn = endpoint.build_assistant_turn(record)
+        blocks = turn.raw_messages[0]["content"]
+        assert blocks[0] == {
+            "type": "thinking",
+            "thinking": "reasoning text",
+            "signature": "sig123",
+        }
+        assert blocks[1]["type"] == "tool_use"
+
+
+class TestAnthropicMessagesRawSystem:
+    """Tests for Turn.raw_system list-form system blocks (per-block cache_control)."""
+
+    @pytest.fixture
+    def endpoint(self):
+        return create_endpoint_with_mock_transport(
+            AnthropicMessagesEndpoint,
+            create_model_endpoint(EndpointType.ANTHROPIC_MESSAGES),
+        )
+
+    @pytest.fixture
+    def model_endpoint(self):
+        return create_model_endpoint(EndpointType.ANTHROPIC_MESSAGES)
+
+    def test_raw_system_overrides_string_system_message(self, endpoint, model_endpoint):
+        system_blocks = [
+            {
+                "type": "text",
+                "text": "you are concise",
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
+        turn = Turn(
+            texts=[Text(contents=["hi"])],
+            raw_system=system_blocks,
+        )
+        request_info = create_request_info(
+            model_endpoint=model_endpoint,
+            turns=[turn],
+            system_message="this string should be ignored",
+        )
+        payload = endpoint.format_payload(request_info)
+        assert payload["system"] == system_blocks
+        # Cache_control round-trips verbatim.
+        assert payload["system"][0]["cache_control"] == {"type": "ephemeral"}
+
+    def test_raw_system_falls_back_to_system_message_when_unset(
+        self, endpoint, model_endpoint
+    ):
+        turn = Turn(texts=[Text(contents=["hi"])])
+        request_info = create_request_info(
+            model_endpoint=model_endpoint,
+            turns=[turn],
+            system_message="be helpful",
+        )
+        payload = endpoint.format_payload(request_info)
+        assert payload["system"] == "be helpful"
+
+    def test_raw_system_latest_turn_wins(self, endpoint, model_endpoint):
+        # Following _latest_turn_attr semantics: the most recent non-None
+        # raw_system across the turn list is what gets used.
+        turn1 = Turn(
+            texts=[Text(contents=["t1"])],
+            raw_system=[{"type": "text", "text": "first"}],
+        )
+        turn2 = Turn(texts=[Text(contents=["t2"])])  # raw_system=None
+        turn3 = Turn(
+            texts=[Text(contents=["t3"])],
+            raw_system=[{"type": "text", "text": "latest"}],
+        )
+        request_info = create_request_info(
+            model_endpoint=model_endpoint, turns=[turn1, turn2, turn3]
+        )
+        payload = endpoint.format_payload(request_info)
+        assert payload["system"] == [{"type": "text", "text": "latest"}]

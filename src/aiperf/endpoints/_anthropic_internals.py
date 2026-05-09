@@ -25,12 +25,15 @@ from aiperf.common.types import JsonObject
 # rather than imported to keep this helpers module a leaf in the import
 # graph (avoids a circular import with the endpoint module).
 _TYPE_TEXT = "text"
+_TYPE_THINKING = "thinking"
 _TYPE_TOOL_USE = "tool_use"
 _TYPE_TOOL_RESULT = "tool_result"
 _TYPE_MESSAGE = "message"
 _TYPE_CONTENT_BLOCK_START = "content_block_start"
 _TYPE_CONTENT_BLOCK_DELTA = "content_block_delta"
 _DELTA_TEXT = "text_delta"
+_DELTA_THINKING = "thinking_delta"
+_DELTA_SIGNATURE = "signature_delta"
 _DELTA_INPUT_JSON = "input_json_delta"
 
 
@@ -167,6 +170,7 @@ def _collect_tool_result(part: dict[str, Any], result: ExtractedPayload) -> None
 def absorb_event(
     json_obj: JsonObject,
     text_parts: list[str],
+    thinking_blocks_by_index: dict[int, dict[str, Any]],
     tool_uses_by_index: dict[int, dict[str, Any]],
 ) -> None:
     """Fold one Anthropic response payload (streaming SSE or non-streaming
@@ -175,21 +179,33 @@ def absorb_event(
     Non-streaming ``type=message`` responses already carry the full
     ``content`` array; streaming responses arrive as a sequence of
     ``content_block_start`` (with the empty block envelope, including
-    ``index``) and ``content_block_delta`` (with ``text_delta`` or
-    ``input_json_delta`` fragments) events that must be reassembled.
+    ``index``) and ``content_block_delta`` (with ``text_delta``,
+    ``thinking_delta``, ``signature_delta``, or ``input_json_delta``
+    fragments) events that must be reassembled.
+
+    Thinking blocks carry an opaque ``signature`` Anthropic emits
+    alongside the text; both must round-trip together for the server to
+    accept the block on FORK-mode replay.
     """
     event_type = json_obj.get("type")
     if event_type == _TYPE_MESSAGE:
-        _absorb_message(json_obj, text_parts, tool_uses_by_index)
+        _absorb_message(
+            json_obj, text_parts, thinking_blocks_by_index, tool_uses_by_index
+        )
     elif event_type == _TYPE_CONTENT_BLOCK_START:
-        _absorb_content_block_start(json_obj, tool_uses_by_index)
+        _absorb_content_block_start(
+            json_obj, thinking_blocks_by_index, tool_uses_by_index
+        )
     elif event_type == _TYPE_CONTENT_BLOCK_DELTA:
-        _absorb_content_block_delta(json_obj, text_parts, tool_uses_by_index)
+        _absorb_content_block_delta(
+            json_obj, text_parts, thinking_blocks_by_index, tool_uses_by_index
+        )
 
 
 def _absorb_message(
     json_obj: JsonObject,
     text_parts: list[str],
+    thinking_blocks_by_index: dict[int, dict[str, Any]],
     tool_uses_by_index: dict[int, dict[str, Any]],
 ) -> None:
     """Non-streaming ``type=message``: walk the full ``content`` array."""
@@ -201,39 +217,64 @@ def _absorb_message(
             text = block.get(_TYPE_TEXT)
             if isinstance(text, str):
                 text_parts.append(text)
+        elif block_type == _TYPE_THINKING:
+            idx = len(thinking_blocks_by_index)
+            # Preserve the full block (thinking, signature, anything else
+            # the server emits) so finalise_thinking round-trips it.
+            thinking_blocks_by_index[idx] = {
+                k: v for k, v in block.items() if k != "type"
+            }
         elif block_type == _TYPE_TOOL_USE:
             idx = len(tool_uses_by_index)
-            tool_uses_by_index[idx] = {
-                "id": block.get("id"),
-                "name": block.get("name"),
-                "input": block.get("input"),
-            }
+            # Preserve every field the server emits (id, name, input,
+            # ``caller`` for Claude Code agentic dispatch, future fields).
+            tool_uses_by_index[idx] = {k: v for k, v in block.items() if k != "type"}
 
 
 def _absorb_content_block_start(
     json_obj: JsonObject,
+    thinking_blocks_by_index: dict[int, dict[str, Any]],
     tool_uses_by_index: dict[int, dict[str, Any]],
 ) -> None:
-    """Streaming ``content_block_start``: open a tool_use accumulator slot."""
+    """Streaming ``content_block_start``: open thinking / tool_use accumulators.
+
+    Thinking blocks open with empty ``thinking`` and ``signature`` strings;
+    tool_use blocks open with empty ``input`` (filled via input_json_delta).
+    Other block types (``text``) need no per-index slot - text deltas
+    accumulate into the flat ``text_parts`` list.
+    """
     block = json_obj.get("content_block") or {}
-    if block.get("type") != _TYPE_TOOL_USE:
+    block_type = block.get("type")
+    idx = json_obj.get("index")
+    if block_type == _TYPE_THINKING:
+        slot = idx if idx is not None else len(thinking_blocks_by_index)
+        thinking_blocks_by_index[slot] = {k: v for k, v in block.items() if k != "type"}
+        # Ensure the accumulator fields exist so deltas can append safely.
+        thinking_blocks_by_index[slot].setdefault(_TYPE_THINKING, "")
+        thinking_blocks_by_index[slot].setdefault("signature", "")
         return
-    idx = json_obj.get("index", len(tool_uses_by_index))
-    tool_uses_by_index[idx] = {
-        "id": block.get("id"),
-        "name": block.get("name"),
-        # Input streams in as JSON fragments via input_json_delta;
-        # accumulate the raw string here, parse once at finalise.
-        "_input_json": "",
-    }
+    if block_type != _TYPE_TOOL_USE:
+        return
+    slot = idx if idx is not None else len(tool_uses_by_index)
+    accumulator = {k: v for k, v in block.items() if k != "type"}
+    # Input streams in as JSON fragments via input_json_delta; accumulate
+    # the raw string here, parse once at finalise.
+    accumulator["_input_json"] = ""
+    tool_uses_by_index[slot] = accumulator
 
 
 def _absorb_content_block_delta(
     json_obj: JsonObject,
     text_parts: list[str],
+    thinking_blocks_by_index: dict[int, dict[str, Any]],
     tool_uses_by_index: dict[int, dict[str, Any]],
 ) -> None:
-    """Streaming ``content_block_delta``: dispatch text vs input_json fragments."""
+    """Streaming ``content_block_delta``: dispatch by ``delta.type``.
+
+    ``text_delta`` -> text_parts; ``thinking_delta`` and ``signature_delta``
+    -> thinking accumulator at this index; ``input_json_delta`` -> tool_use
+    accumulator at this index. Unknown delta types are dropped.
+    """
     delta = json_obj.get("delta") or {}
     delta_type = delta.get("type")
     if delta_type == _DELTA_TEXT:
@@ -241,16 +282,55 @@ def _absorb_content_block_delta(
         if isinstance(text, str):
             text_parts.append(text)
         return
-    if delta_type != _DELTA_INPUT_JSON:
-        return
+
     idx = json_obj.get("index")
-    if idx is None or idx not in tool_uses_by_index:
+    if idx is None:
         return
-    fragment = delta.get("partial_json") or ""
-    if isinstance(fragment, str):
-        tool_uses_by_index[idx]["_input_json"] = (
-            tool_uses_by_index[idx].get("_input_json", "") + fragment
+
+    if delta_type == _DELTA_THINKING:
+        _append_to_indexed(
+            thinking_blocks_by_index, idx, _TYPE_THINKING, delta.get(_TYPE_THINKING)
         )
+    elif delta_type == _DELTA_SIGNATURE:
+        _append_to_indexed(
+            thinking_blocks_by_index, idx, "signature", delta.get("signature")
+        )
+    elif delta_type == _DELTA_INPUT_JSON:
+        _append_to_indexed(
+            tool_uses_by_index, idx, "_input_json", delta.get("partial_json") or ""
+        )
+
+
+def _append_to_indexed(
+    blocks_by_index: dict[int, dict[str, Any]],
+    idx: int,
+    field: str,
+    fragment: Any,
+) -> None:
+    """Append a string ``fragment`` to ``blocks_by_index[idx][field]``.
+
+    No-op when the index has no open accumulator (deltas can arrive
+    before content_block_start in pathological streams) or the fragment
+    is not a string (defensive: server contract is string deltas).
+    """
+    accum = blocks_by_index.get(idx)
+    if accum is None or not isinstance(fragment, str):
+        return
+    accum[field] = accum.get(field, "") + fragment
+
+
+def finalise_thinking(accumulator: dict[str, Any]) -> dict[str, Any]:
+    """Convert a streaming/non-streaming thinking accumulator into a wire block.
+
+    Anthropic requires ``signature`` to round-trip thinking blocks on
+    FORK-mode replay; both fields are preserved verbatim. Empty
+    ``thinking`` / ``signature`` are kept (server emits them as empty
+    strings on open) rather than stripped, so the resulting block matches
+    the wire shape of the original.
+    """
+    block = {"type": _TYPE_THINKING}
+    block.update({k: v for k, v in accumulator.items() if v is not None})
+    return block
 
 
 def finalise_tool_use(accumulator: dict[str, Any]) -> dict[str, Any]:
