@@ -261,8 +261,41 @@ async def _chat_stream_wrapper(
 # ============================================================================
 
 
-def _build_anthropic_response_data(ctx: RequestCtx) -> dict[str, Any]:
-    """Build non-streaming Anthropic Messages response data."""
+def _should_emit_tool_use(req: AnthropicMessagesRequest) -> dict[str, Any] | None:
+    """Return the synthesised tool_use block to emit, or None if tools aren't
+    declared on the request.
+
+    Triggered whenever the request declares ``tools`` and ``tool_choice`` is
+    either absent OR explicitly opts in (``{"type":"any"}`` /
+    ``{"type":"tool",...}``). Picks the first declared tool's ``name`` and
+    fabricates an ``input`` dict so a FORK-mode replay sees the parent's
+    tool_use round-trip through ``build_assistant_turn``.
+    """
+    tools = req.tools
+    if not tools:
+        return None
+    choice_type = (req.tool_choice or {}).get("type")
+    if choice_type == "none":
+        return None
+    first = tools[0] if isinstance(tools[0], dict) else {}
+    name = first.get("name") or "mock_tool"
+    return {
+        "type": "tool_use",
+        "id": "toolu_mock_1",
+        "name": name,
+        "input": {"arg": "value"},
+    }
+
+
+def _build_anthropic_response_data(
+    ctx: RequestCtx, req: AnthropicMessagesRequest | None = None
+) -> dict[str, Any]:
+    """Build non-streaming Anthropic Messages response data.
+
+    When ``req`` is supplied and declares ``tools``, append a synthesised
+    ``tool_use`` block after any text/thinking and set
+    ``stop_reason="tool_use"``.
+    """
     content: list[dict[str, Any]] = []
 
     if ctx.reasoning_content:
@@ -276,13 +309,19 @@ def _build_anthropic_response_data(ctx: RequestCtx) -> dict[str, Any]:
 
     content.append({"type": "text", "text": ctx.content})
 
+    stop_reason = ctx.finish_reason
+    tool_use_block = _should_emit_tool_use(req) if req is not None else None
+    if tool_use_block is not None:
+        content.append(tool_use_block)
+        stop_reason = "tool_use"
+
     return {
         "id": ctx.request_id,
         "type": "message",
         "role": "assistant",
         "content": content,
         "model": ctx.model,
-        "stop_reason": ctx.finish_reason,
+        "stop_reason": stop_reason,
         "stop_sequence": None,
         "usage": {
             "input_tokens": ctx.usage["prompt_tokens"],
@@ -313,7 +352,7 @@ async def anthropic_messages(
 
     with track_llm_request(ctx, req.model, endpoint):
         await ctx.latency_sim.wait_for_tokens(len(ctx.tokens))
-        response_data = _build_anthropic_response_data(ctx)
+        response_data = _build_anthropic_response_data(ctx, req)
         response_bytes = len(orjson.dumps(response_data))
         record_request_bytes(endpoint, len(ctx.tokenized.text), response_bytes)
         return ORJSONResponse(response_data)
@@ -324,7 +363,10 @@ async def _anthropic_stream_wrapper(
 ):
     """Wrapper for Anthropic streaming that records metrics after completion."""
     async with async_track_llm_request(ctx, req.model, endpoint):
-        async for chunk in stream_anthropic_messages(ctx, endpoint):
+        tool_use_block = _should_emit_tool_use(req)
+        async for chunk in stream_anthropic_messages(
+            ctx, endpoint, tool_use_block=tool_use_block
+        ):
             yield chunk
 
 

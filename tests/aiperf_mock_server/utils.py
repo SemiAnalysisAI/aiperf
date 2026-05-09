@@ -374,9 +374,17 @@ def _anthropic_sse(event_type: str, data: dict[str, Any]) -> bytes:
 
 
 async def stream_anthropic_messages(
-    ctx: RequestCtx, endpoint: str
+    ctx: RequestCtx,
+    endpoint: str,
+    tool_use_block: dict[str, Any] | None = None,
 ) -> AsyncGenerator[bytes, None]:
-    """Stream Anthropic Messages tokens as SSE events."""
+    """Stream Anthropic Messages tokens as SSE events.
+
+    When ``tool_use_block`` is supplied, append a ``tool_use`` content block
+    after the thinking/text blocks, streaming its ``input`` dict as
+    ``input_json_delta`` fragments to mirror the real Anthropic wire shape.
+    The final ``message_delta`` then carries ``stop_reason="tool_use"``.
+    """
     has_thinking = bool(ctx.reasoning_content_tokens)
 
     # message_start with input_tokens usage
@@ -470,13 +478,49 @@ async def stream_anthropic_messages(
         {"type": "content_block_stop", "index": block_index},
     )
 
+    stop_reason = ctx.finish_reason
+
+    # Tool use block (if requested): stream the input as a single
+    # input_json_delta fragment so consumers exercise the streaming
+    # reassembly path. Real Anthropic servers chunk this; one fragment is
+    # sufficient for endpoint-side correctness checks.
+    if tool_use_block is not None:
+        block_index += 1
+        envelope: dict[str, Any] = {
+            k: v for k, v in tool_use_block.items() if k != "type"
+        }
+        # Open with empty input; deltas fill it.
+        envelope_with_empty_input = {**envelope, "input": {}}
+        yield _anthropic_sse(
+            "content_block_start",
+            {
+                "type": "content_block_start",
+                "index": block_index,
+                "content_block": {"type": "tool_use", **envelope_with_empty_input},
+            },
+        )
+        partial_json = orjson.dumps(tool_use_block.get("input") or {}).decode()
+        yield _anthropic_sse(
+            "content_block_delta",
+            {
+                "type": "content_block_delta",
+                "index": block_index,
+                "delta": {"type": "input_json_delta", "partial_json": partial_json},
+            },
+        )
+        yield _anthropic_sse(
+            "content_block_stop",
+            {"type": "content_block_stop", "index": block_index},
+        )
+        stop_reason = "tool_use"
+
     # message_delta with output_tokens
     output_tokens = ctx.usage["completion_tokens"]
     yield _anthropic_sse(
         "message_delta",
         {
             "type": "message_delta",
-            "delta": {"stop_reason": ctx.finish_reason, "stop_sequence": None},
+            "delta": {"stop_reason": stop_reason, "stop_sequence": None},
             "usage": {"output_tokens": output_tokens},
         },
     )
