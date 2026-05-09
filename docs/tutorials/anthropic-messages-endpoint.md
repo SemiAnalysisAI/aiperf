@@ -117,6 +117,7 @@ Key formatting rules:
 - **Stream**: Set from `--streaming` flag (default: `false`)
 - **System**: Placed as a top-level string field when a system message is provided (never in the messages array)
 - **Tools**: Included at the top level when tool definitions are present in the conversation
+- **System (raw)**: When a turn carries `raw_system` (a list of content blocks), it is placed verbatim in the payload's top-level `system` field, overriding the conversation-level `system_message` string. See [Per-block system prompts (`raw_system`)](#per-block-system-prompts-raw_system)
 - **Extra inputs**: Merged into the payload via `--extra-inputs` (e.g., `--extra-inputs temperature:0.7`)
 
 ### Simple Text Content
@@ -339,10 +340,98 @@ The usage object may include `cache_creation_input_tokens` and `cache_read_input
 
 ---
 
-## Tips
+## Advanced features
+
+### Per-block system prompts (`raw_system`)
+
+The conversation-level `system_message` string (set, for example, by `--shared-system-prompt-length`) is rendered as a plain top-level `system: "..."` string. That works for most cases, but cannot express Anthropic's per-block extensions — most importantly `cache_control: {"type": "ephemeral"}` for prompt caching.
+
+To opt in, set `raw_system` on a `Turn` to a list of content blocks. The endpoint resolves it the same way as `raw_tools`: walking the turn list from the end and taking the first non-`None` value (`base_endpoint.py::_latest_turn_attr`). When set, it wins over `system_message`:
+
+```json
+{
+    "model": "claude-sonnet-4-20250514",
+    "system": [
+        {"type": "text", "text": "You are a careful code reviewer."},
+        {
+            "type": "text",
+            "text": "<long shared rubric...>",
+            "cache_control": {"type": "ephemeral"}
+        }
+    ],
+    "messages": [...],
+    "max_tokens": 1024,
+    "stream": false
+}
+```
+
+Notes:
+
+- Latest-non-`None` turn wins — a FORK-mode DAG child that does not re-declare `raw_system` still inherits the parent's value.
+- The field is Anthropic-specific. Other endpoints (`chat`, `responses`, ...) ignore it.
+- Block contents flow into ISL accounting via the `walk_system` override; see [Input token accounting (ISL)](#input-token-accounting-isl) below.
+- `raw_system` is currently populated by trace-replay loaders that ingest Anthropic-shaped traces; programmatic callers building `Turn` objects directly can set it as well.
+
+### Audio and video are unsupported
+
+The Anthropic Messages API does not accept audio or video content blocks. `_render_audio_part` and `_render_video_part` raise `NotImplementedError` immediately so a misuse fails at `format_payload` time with a clear error rather than producing an opaque server 4xx after dispatch:
+
+```text
+NotImplementedError: Anthropic Messages API does not support audio input.
+Use a different endpoint, or remove audio content from the turn.
+```
+
+This is intentional. If your dataset has audio or video, route it to an endpoint that supports it (for example, the OpenAI `chat` endpoint with a multimodal-capable model) — do not try to coerce it into `anthropic_messages`.
+
+---
+
+## Internals
+
+### Input token accounting (ISL)
+
+When you set `--synthetic-input-tokens-mean`, AIPerf needs an accurate count of the input tokens it just placed in the request payload to hit your target. The base endpoint walks `messages` content parts dispatched via `PART_TYPES`. Anthropic's `extract_payload_inputs` extends that walk in three places (see `_anthropic_internals.py`):
+
+| Helper | What it harvests | Why it matters |
+|---|---|---|
+| `walk_system` | Top-level `system` (string OR list of `{"type":"text","text":...}` blocks) | Otherwise the system prompt — often the largest input — is invisible to ISL accounting |
+| `walk_tool_schemas` | `tools[*].input_schema` (serialised as JSON) | Anthropic's schema field is `input_schema`, not OpenAI's `parameters`; the base walk already harvests `name` and `description` |
+| `walk_tool_blocks` | `tool_use` `name` + `input`, and `tool_result` `content` (string or list of text blocks) | The server tokenises these on agentic-history replay; the base walk drops them because they are not in `PART_TYPES` |
+
+The endpoint also overrides `PART_TYPES` itself: `IMAGE` is the bare string `image` (Anthropic's shape) rather than OpenAI's `image_url`, and `AUDIO` and `VIDEO` are explicitly empty sets so the walk does not miscount parts that happen to share OpenAI's type names.
+
+If your synthetic ISL targeting was undercounting agentic / tool-heavy traces before, this is what changed.
+
+### Assistant-turn replay (DAG / FORK mode)
+
+For DAG datasets (`dag_jsonl`) where a child turn forks from a parent's history, AIPerf replays the parent's assistant reply as part of the child request's `messages`. The base implementation captures only the streamed text. Anthropic's `build_assistant_turn` reassembles the full content array — `thinking`, then `text`, then `tool_use` — so a FORK-mode child sees the complete reply the model originally produced.
+
+```mermaid
+flowchart LR
+    A[record.responses<br/>SSE events or<br/>non-streaming message] --> B[absorb_event<br/>per response]
+    B --> C[text_parts]
+    B --> D[thinking_blocks_by_index]
+    B --> E[tool_uses_by_index]
+    C --> F[finalise:<br/>thinking, text, tool_use]
+    D --> F
+    E --> F
+    F --> G[Turn.raw_messages =<br/>assistant content array]
+```
+
+Reassembly rules (`_anthropic_internals.py`):
+
+- **Text** — accumulated from `content_block_delta` events with `delta.type == "text_delta"`.
+- **Thinking** — keyed by SSE `index`; `thinking_delta` fragments append to `thinking`, `signature_delta` fragments append to `signature`. Both round-trip — the server requires the matching signature to accept a thinking block on replay.
+- **Tool use** — keyed by SSE `index`; `input_json_delta.partial_json` fragments concatenate into a raw string, parsed once at finalise. Malformed JSON is preserved as a string under `input` rather than dropped, so the server rejects it loudly instead of AIPerf silently losing data.
+- **Non-streaming `type=message`** responses are absorbed by walking the full `content` array directly.
+
+When neither thinking nor `tool_use` blocks are present, `build_assistant_turn` falls back to the base text-only behaviour — callers that don't use either feature see no change.
+
+---
+
+
 
 - **Tokenizer**: Anthropic models use a proprietary tokenizer. When using `--use-server-token-count`, you still need to specify a tokenizer for dataset generation (e.g., `--tokenizer gpt2`). For accurate client-side token counts, use a tokenizer that matches the model.
 - **Max tokens default**: The endpoint defaults to `max_tokens: 1024` when no value is specified in the turn data. Use `--osl` to control output sequence length.
-- **Audio and video**: The Anthropic Messages API does not support audio or video content blocks. If your dataset includes these, the endpoint logs a warning and drops them.
+- **Audio and video**: The Anthropic Messages API does not support audio or video content blocks. `_render_audio_part` / `_render_video_part` raise `NotImplementedError` so the failure surfaces at `format_payload` time. See [Audio and video are unsupported](#audio-and-video-are-unsupported).
 - **Custom endpoint path**: The default path is `/v1/messages`. Override with `--custom-endpoint /my/path` if your server uses a different path.
 - **Connection strategy**: For multi-turn benchmarks where server-side session affinity matters, use `--connection-reuse-strategy sticky-user-sessions`.
