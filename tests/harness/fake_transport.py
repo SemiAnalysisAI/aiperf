@@ -428,11 +428,18 @@ class FakeTransport(BaseTransport):
         if self.model_endpoint.endpoint.streaming:
             stream = inp.stream_fn(inp.ctx, inp.endpoint_path, False)
             return await self._stream_to_record(
-                stream, inp.start_perf_ns, inp.first_token_callback
+                stream,
+                inp.start_perf_ns,
+                inp.start_timestamp_ns,
+                inp.first_token_callback,
             )
 
         await inp.ctx.latency_sim.wait_for_tokens(len(inp.ctx.tokens))
-        return self._make_json_record(inp.start_perf_ns, inp.build_response(inp.ctx))
+        return self._make_json_record(
+            inp.start_perf_ns,
+            inp.start_timestamp_ns,
+            inp.build_response(inp.ctx),
+        )
 
     async def _do_embedding(self, inp: HandlerInput) -> RequestRecord:
         """Handle embedding requests."""
