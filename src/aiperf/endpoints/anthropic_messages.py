@@ -3,22 +3,24 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
-from aiperf.common.enums import CaseInsensitiveStrEnum
+from aiperf.common.enums import CaseInsensitiveStrEnum, MediaType
 from aiperf.common.models import (
     BaseResponseData,
+    ExtractedPayload,
     InferenceServerResponse,
     ParsedResponse,
     ReasoningResponseData,
     RequestInfo,
+    RequestRecord,
     TextResponseData,
     Turn,
 )
 from aiperf.common.types import JsonObject
+from aiperf.endpoints import _anthropic_internals as _internals
 from aiperf.endpoints.base_endpoint import BaseEndpoint
 
-_DEFAULT_ROLE: str = "user"
 _ANTHROPIC_VERSION: str = "2023-06-01"
 
 
@@ -58,7 +60,33 @@ class AnthropicMessagesEndpoint(BaseEndpoint):
 
     Supports text content, tool use, extended thinking, and both
     streaming and non-streaming responses via /v1/messages.
+
+    Message-array construction reuses the generic
+    ``BaseEndpoint.build_messages`` flow. Anthropic's wire shape differs
+    from OpenAI chat in two places:
+
+    - the system prompt lives at the top level of the payload (not in
+      ``messages`` as a ``role: system`` entry);
+    - the image content part is ``{"type": "image", "source": {...}}``
+      rather than ``{"type": "image_url", ...}``.
+
+    Audio and video content blocks are not part of the Anthropic Messages
+    API; ``_render_audio_part`` / ``_render_video_part`` raise immediately
+    so misuse fails at format-time rather than producing an opaque server
+    4xx.
     """
+
+    # Anthropic content-part type names: ``text`` (same as default) and
+    # bare ``image`` (Anthropic uses ``{"type": "image", "source": {...}}``,
+    # not OpenAI's ``image_url``). Audio/video are unsupported - empty
+    # sets prevent ``extract_payload_inputs`` from miscounting parts that
+    # happen to share OpenAI's type names.
+    PART_TYPES: ClassVar[dict[MediaType, set[str]]] = {
+        MediaType.TEXT: {"text"},
+        MediaType.IMAGE: {"image"},
+        MediaType.AUDIO: set(),
+        MediaType.VIDEO: set(),
+    }
 
     def get_endpoint_headers(self, request_info: RequestInfo) -> dict[str, str]:
         """Get Anthropic-specific headers using x-api-key auth."""
@@ -85,106 +113,142 @@ class AnthropicMessagesEndpoint(BaseEndpoint):
 
         turns = request_info.turns
         model_endpoint = request_info.model_endpoint
-        messages, system = self._create_messages(
-            turns, request_info.system_message, request_info.user_context_message
-        )
+
+        messages: list[dict[str, Any]] = []
+        if request_info.user_context_message:
+            messages.append(
+                {"role": "user", "content": request_info.user_context_message}
+            )
+        messages.extend(self.build_messages(turns))
+
+        raw_tools = self._latest_turn_attr(turns, "raw_tools")
+        max_tokens = self._latest_turn_attr(turns, "max_tokens")
+        extra_body = self._latest_turn_attr(turns, "extra_body")
+        model_name = self._latest_turn_attr(turns, "model")
 
         payload: dict[str, Any] = {
-            "model": turns[-1].model or model_endpoint.primary_model_name,
+            "model": model_name or model_endpoint.primary_model_name,
             "messages": messages,
-            "max_tokens": turns[-1].max_tokens
-            if turns[-1].max_tokens is not None
-            else 1024,
+            # Anthropic requires max_tokens; default mirrors the API's
+            # historical minimum-friendly value when no per-turn cap is set.
+            "max_tokens": max_tokens if max_tokens is not None else 1024,
             "stream": model_endpoint.endpoint.streaming,
         }
 
-        if system:
-            payload["system"] = system
+        if request_info.system_message:
+            payload["system"] = request_info.system_message
+
+        if raw_tools is not None:
+            payload["tools"] = raw_tools
 
         if model_endpoint.endpoint.extra:
             payload.update(model_endpoint.endpoint.extra)
 
+        if extra_body:
+            payload.update(extra_body)
+
         self.trace(lambda: f"Formatted payload: {payload}")
         return payload
 
-    def _create_messages(
-        self,
-        turns: list[Turn],
-        system_message: str | None,
-        user_context_message: str | None,
-    ) -> tuple[list[dict[str, Any]], str | None]:
-        """Create messages and extract system prompt for Anthropic Messages API.
+    # --- Content-part hooks (override only the Anthropic-specific shapes) ----
 
-        Args:
-            turns: List of turns in the request
-            system_message: Optional shared system message (becomes top-level system param)
-            user_context_message: Optional per-conversation user context to prepend
+    def _render_image_part(self, url_or_data_uri: str) -> dict[str, Any]:
+        """Anthropic image part: ``{"type": "image", "source": {"type": "url", ...}}``."""
+        return {
+            "type": "image",
+            "source": {"type": "url", "url": url_or_data_uri},
+        }
 
-        Returns:
-            Tuple of (messages list, system string or None)
+    def _render_audio_part(self, format_and_b64: str) -> dict[str, Any]:
+        """Anthropic Messages API does not accept audio content blocks.
+
+        Raise immediately so misuse fails at ``format_payload`` rather than
+        producing an opaque server 4xx after the request is dispatched.
         """
-        messages: list[dict[str, Any]] = []
-
-        if user_context_message:
-            messages.append({"role": "user", "content": user_context_message})
-
-        for turn in turns:
-            role = turn.role or _DEFAULT_ROLE
-            content = self._build_turn_content(turn)
-            messages.append({"role": role, "content": content})
-
-        return messages, system_message
-
-    def _build_turn_content(self, turn: Turn) -> str | list[dict[str, Any]]:
-        """Build content for a single turn.
-
-        Returns a plain string for simple single-text turns,
-        or a list of content blocks for complex turns.
-        """
-        has_images = len(turn.images) > 0
-        has_audios = len(turn.audios) > 0
-        has_videos = len(turn.videos) > 0
-
-        if has_audios:
-            self.warning(
-                lambda: "Anthropic Messages API does not support audio content blocks; "
-                "audio inputs will be dropped"
-            )
-        if has_videos:
-            self.warning(
-                lambda: "Anthropic Messages API does not support video content blocks; "
-                "video inputs will be dropped"
-            )
-
-        is_simple = (
-            len(turn.texts) == 1
-            and len(turn.texts[0].contents) == 1
-            and not has_images
-            and not has_audios
-            and not has_videos
+        raise NotImplementedError(
+            "Anthropic Messages API does not support audio input. "
+            "Use a different endpoint, or remove audio content from the turn."
         )
-        if is_simple:
-            return turn.texts[0].contents[0] if turn.texts[0].contents else ""
 
+    def _render_video_part(self, url_or_data_uri: str) -> dict[str, Any]:
+        """Anthropic Messages API does not accept video content blocks.
+
+        Raise immediately so misuse fails at ``format_payload`` rather than
+        producing an opaque server 4xx after the request is dispatched.
+        """
+        raise NotImplementedError(
+            "Anthropic Messages API does not support video input. "
+            "Use a different endpoint, or remove video content from the turn."
+        )
+
+    # --- Payload -> inputs extraction ----------------------------------------
+
+    def extract_payload_inputs(self, payload: dict[str, Any]) -> ExtractedPayload:
+        """Anthropic single-pass extraction.
+
+        Inherits the base-class walk for ``messages`` (which dispatches
+        content parts via ``PART_TYPES``) and additionally:
+
+        - prepends top-level ``system`` (string OR list of
+          ``{"type":"text","text":...}`` blocks);
+        - collects ``input_schema`` for top-level ``tools``
+          (Anthropic's equivalent of OpenAI's ``parameters``); ``name``
+          and ``description`` are already harvested by the base walk;
+        - collects ``name``/``input`` from ``tool_use`` content blocks
+          and the ``content`` text of ``tool_result`` blocks - parts the
+          server tokenises on agentic-history replay that the base walk
+          would otherwise drop because they are not in ``PART_TYPES``.
+        """
+        result = super().extract_payload_inputs(payload)
+        _internals.walk_system(payload, result)
+        _internals.walk_tool_schemas(payload, result)
+        _internals.walk_tool_blocks(payload, result)
+        return result
+
+    def build_assistant_turn(self, record: RequestRecord) -> Turn | None:
+        """Capture text + ``tool_use`` blocks from an Anthropic response for replay.
+
+        Walks the raw responses on ``record``, accumulating text deltas
+        and reassembling streaming ``tool_use`` blocks (``input_json_delta``
+        fragments concatenated per ``index``), then returns a Turn whose
+        ``raw_messages`` re-renders as an assistant message carrying the
+        full content array - text plus tool_use blocks - so a FORK-mode
+        DAG child inheriting the parent's history sees the parent's
+        complete reply, not just the text.
+
+        Falls back to the base text-only behaviour when no ``tool_use``
+        blocks are present, so callers that don't use tools see no
+        behavioural change.
+        """
+        text_parts: list[str] = []
+        tool_uses_by_index: dict[int, dict[str, Any]] = {}
+
+        for response in record.responses:
+            json_obj = response.get_json()
+            if not json_obj:
+                continue
+            _internals.absorb_event(json_obj, text_parts, tool_uses_by_index)
+
+        if not tool_uses_by_index:
+            return super().build_assistant_turn(record)
+
+        text = "".join(text_parts)
         content_blocks: list[dict[str, Any]] = []
-        for text in turn.texts:
-            for item in text.contents:
-                if not item:
-                    continue
-                content_blocks.append({"type": ContentBlockType.TEXT, "text": item})
+        if text:
+            content_blocks.append({"type": "text", "text": text})
+        for idx in sorted(tool_uses_by_index):
+            content_blocks.append(_internals.finalise_tool_use(tool_uses_by_index[idx]))
 
-        for image in turn.images:
-            for item in image.contents:
-                if not item:
-                    continue
-                content_blocks.append(
-                    {
-                        "type": "image",
-                        "source": {"type": "url", "url": item},
-                    }
-                )
+        assistant_msg = {"role": "assistant", "content": content_blocks}
+        return Turn(role="assistant", raw_messages=[assistant_msg])
 
-        return content_blocks
+    def _render_text_part(self, text: str) -> dict[str, Any]:
+        """Anthropic text part shape: ``{"type": "text", "text": ...}``.
+
+        Identical to the chat default; named explicitly here so the file
+        documents the full Anthropic content-part shape contract in one place.
+        """
+        return {"type": "text", "text": text}
 
     def parse_response(
         self, response: InferenceServerResponse
@@ -268,32 +332,7 @@ class AnthropicMessagesEndpoint(BaseEndpoint):
                 return None
 
             case EventType.CONTENT_BLOCK_DELTA:
-                delta = json_obj.get("delta", {})
-                delta_type = delta.get("type")
-
-                if delta_type == DeltaType.TEXT_DELTA:
-                    text = delta.get("text")
-                    if text:
-                        return ParsedResponse(
-                            perf_ns=response.perf_ns,
-                            data=TextResponseData(text=text),
-                        )
-
-                elif delta_type == DeltaType.THINKING_DELTA:
-                    thinking = delta.get("thinking")
-                    if thinking:
-                        return ParsedResponse(
-                            perf_ns=response.perf_ns,
-                            data=ReasoningResponseData(reasoning=thinking),
-                        )
-
-                elif delta_type in (
-                    DeltaType.INPUT_JSON_DELTA,
-                    DeltaType.SIGNATURE_DELTA,
-                ):
-                    return None
-
-                return None
+                return self._parse_content_block_delta(response, json_obj)
 
             case EventType.MESSAGE_DELTA:
                 usage = json_obj.get("usage")
@@ -321,3 +360,38 @@ class AnthropicMessagesEndpoint(BaseEndpoint):
             case _:
                 self.debug(lambda: f"Unknown Anthropic SSE event type: {event_type!r}")
                 return None
+
+    def _parse_content_block_delta(
+        self, response: InferenceServerResponse, json_obj: JsonObject
+    ) -> ParsedResponse | None:
+        """Parse a ``content_block_delta`` SSE event.
+
+        Split out of ``_parse_streaming_event`` so that method stays under
+        the cyclomatic-complexity guardrail; the delta has its own
+        sub-dispatch on ``delta.type``.
+        """
+        delta = json_obj.get("delta", {})
+        delta_type = delta.get("type")
+
+        if delta_type == DeltaType.TEXT_DELTA:
+            text = delta.get("text")
+            if text:
+                return ParsedResponse(
+                    perf_ns=response.perf_ns,
+                    data=TextResponseData(text=text),
+                )
+            return None
+
+        if delta_type == DeltaType.THINKING_DELTA:
+            thinking = delta.get("thinking")
+            if thinking:
+                return ParsedResponse(
+                    perf_ns=response.perf_ns,
+                    data=ReasoningResponseData(reasoning=thinking),
+                )
+            return None
+
+        # input_json_delta / signature_delta / unknown -> drop silently;
+        # they carry tool-call argument fragments and signature material
+        # that the streaming text/thinking accumulators don't consume.
+        return None
