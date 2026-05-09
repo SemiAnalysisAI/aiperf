@@ -46,7 +46,7 @@ class TestAnthropicMessagesFormatPayload:
         payload = endpoint.format_payload(request_info)
 
         assert payload["model"] == "claude-sonnet-4-20250514"
-        assert payload["stream"] is False
+        assert "stream" not in payload
         assert payload["max_tokens"] == 1024
         assert len(payload["messages"]) == 1
         assert payload["messages"][0]["role"] == "user"
@@ -126,6 +126,17 @@ class TestAnthropicMessagesFormatPayload:
         payload = endpoint.format_payload(request_info)
 
         assert payload["stream"] is True
+
+    def test_non_streaming_omits_stream_key(self, endpoint, model_endpoint):
+        # Real Claude Code clients omit ``stream`` from non-streaming requests
+        # rather than sending ``stream: false``; matching that wire shape
+        # avoids a minor proxy-log diff.
+        turn = Turn(texts=[Text(contents=["Test"])], model="claude-sonnet-4-20250514")
+        request_info = create_request_info(model_endpoint=model_endpoint, turns=[turn])
+
+        payload = endpoint.format_payload(request_info)
+
+        assert "stream" not in payload
 
     def test_extra_params(self):
         extra_params = [("temperature", 0.7), ("top_p", 0.9)]

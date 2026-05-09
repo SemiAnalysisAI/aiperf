@@ -133,8 +133,11 @@ class AnthropicMessagesEndpoint(BaseEndpoint):
             # Anthropic requires max_tokens; default mirrors the API's
             # historical minimum-friendly value when no per-turn cap is set.
             "max_tokens": max_tokens if max_tokens is not None else 1024,
-            "stream": model_endpoint.endpoint.streaming,
         }
+        # Real Claude Code clients omit ``stream`` entirely on non-streaming
+        # requests; only set it when streaming is enabled to match that wire shape.
+        if model_endpoint.endpoint.streaming:
+            payload["stream"] = True
 
         # raw_system (Turn-level list-of-blocks) wins over the
         # conversation-level system_message string. Lets callers attach
