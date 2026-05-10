@@ -607,9 +607,21 @@ class AIPerfCLI:
             List of command arguments
         """
         cmd = cmd.strip().replace("\\\n", " ")
-        # POSIX-mode shlex treats backslash as an escape character, which
-        # strips backslashes from Windows paths (C:\Users\... becomes
-        # C:Users...). On Windows we parse in non-POSIX mode so backslashes
-        # in interpolated paths are preserved.
-        args = shlex.split(cmd, posix=(sys.platform != "win32"))
+        # On Windows we need two things that POSIX shlex doesn't give together:
+        #   1) preserve backslashes in interpolated paths (C:\Users\... must
+        #      survive parsing, but POSIX shlex treats `\` as an escape char
+        #      and strips it)
+        #   2) strip surrounding quotes from quoted values (so tests like
+        #      `--sequence-distribution "64|10,32|8:70..."` pass the unquoted
+        #      value to aiperf — non-POSIX shlex keeps the literal `"`)
+        # Use shlex.shlex configured for POSIX-style quote handling but with
+        # backslash escaping disabled. On non-Windows, plain POSIX shlex.split
+        # is fine.
+        if sys.platform == "win32":
+            lex = shlex.shlex(cmd, posix=True)
+            lex.whitespace_split = True
+            lex.escape = ""  # don't treat backslash as an escape character
+            args = list(lex)
+        else:
+            args = shlex.split(cmd, posix=True)
         return args[1:] if args and args[0] == "aiperf" else args

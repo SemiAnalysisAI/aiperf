@@ -2,13 +2,22 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Tests for tests/harness/utils.py — specifically the platform-branching
-shlex behavior introduced for Windows path support (Bug 6).
+shlex behavior for Windows command parsing.
 
-POSIX-mode shlex.split treats backslash as an escape character. Windows
-paths like C:\\Users\\... would be silently mangled into C:Users... on
-non-POSIX-shlex parsing. The harness now selects POSIX vs non-POSIX mode
-based on sys.platform so test commands that interpolate Windows paths
-preserve their backslashes.
+On Windows the harness needs two properties from shlex that the standard
+modes don't give together:
+
+  1) preserve backslashes in interpolated paths (C:\\Users\\... must survive
+     parsing; POSIX shlex.split would treat `\\` as an escape char and strip
+     it — Bug 6).
+  2) strip surrounding quotes from quoted values (so f-strings like
+     `--sequence-distribution "64|10,32|8:70..."` pass the unquoted value
+     to aiperf; non-POSIX shlex would keep the literal `"` in the token,
+     and aiperf's config validator then rejects the value — AIP-896).
+
+The harness now uses ``shlex.shlex(posix=True, escape="")`` on Windows to
+get POSIX-style quote handling without backslash escaping. On non-Windows
+plain POSIX ``shlex.split`` is used.
 """
 
 from __future__ import annotations
@@ -29,10 +38,9 @@ class TestParseCommandShlexMode:
             )
         assert args == ["profile", "--file", "/tmp/data.jsonl", "--request-count", "5"]
 
-    def test_windows_uses_non_posix_mode_preserves_backslashes(self) -> None:
-        """On Windows the parser runs in non-POSIX mode so backslashes in
-        interpolated paths (C:\\Users\\...) are preserved as literal chars
-        rather than treated as escape introducers."""
+    def test_windows_preserves_backslashes_in_paths(self) -> None:
+        """On Windows backslashes in interpolated paths (C:\\Users\\...) are
+        preserved as literal chars rather than treated as escape introducers."""
         cmd = r"aiperf profile --file C:\Users\test\data.jsonl --request-count 5"
         with patch("tests.harness.utils.sys.platform", "win32"):
             args = AIPerfCLI._parse_command(cmd)
@@ -42,6 +50,63 @@ class TestParseCommandShlexMode:
             r"C:\Users\test\data.jsonl",
             "--request-count",
             "5",
+        ]
+
+    def test_windows_strips_double_quotes_around_value(self) -> None:
+        """On Windows, surrounding double quotes are stripped from quoted
+        values. Regression for AIP-896 part 1: with non-POSIX shlex the
+        quote chars stayed in the token, and aiperf's config validator
+        then rejected the (quoted) value.
+
+        Example from test_seq_dist.py: --sequence-distribution
+        "64|10,32|8:70;..." must arrive at aiperf as the unquoted string."""
+        cmd = (
+            "aiperf profile "
+            '--sequence-distribution "64|10,32|8:70;256|40,128|20:20" '
+            "--request-count 1"
+        )
+        with patch("tests.harness.utils.sys.platform", "win32"):
+            args = AIPerfCLI._parse_command(cmd)
+        assert args == [
+            "profile",
+            "--sequence-distribution",
+            "64|10,32|8:70;256|40,128|20:20",
+            "--request-count",
+            "1",
+        ]
+
+    def test_windows_strips_single_quotes_around_value(self) -> None:
+        """Single-quoted values also have their surrounding quotes stripped
+        on Windows, matching POSIX shlex.split behavior."""
+        cmd = "aiperf profile --extra-inputs 'foo:bar,baz:qux' --request-count 1"
+        with patch("tests.harness.utils.sys.platform", "win32"):
+            args = AIPerfCLI._parse_command(cmd)
+        assert args == [
+            "profile",
+            "--extra-inputs",
+            "foo:bar,baz:qux",
+            "--request-count",
+            "1",
+        ]
+
+    def test_windows_handles_quoted_value_with_backslash_path(self) -> None:
+        """Both fixes together: a Windows path AND a quoted value in the same
+        command must each parse correctly — backslashes preserved, quotes
+        stripped."""
+        cmd = (
+            r"aiperf profile --file C:\Users\test\data.jsonl "
+            '--sequence-distribution "64|10,32|8:70" --request-count 1'
+        )
+        with patch("tests.harness.utils.sys.platform", "win32"):
+            args = AIPerfCLI._parse_command(cmd)
+        assert args == [
+            "profile",
+            "--file",
+            r"C:\Users\test\data.jsonl",
+            "--sequence-distribution",
+            "64|10,32|8:70",
+            "--request-count",
+            "1",
         ]
 
     def test_unix_posix_mode_strips_backslashes_from_windows_style_paths(self) -> None:
