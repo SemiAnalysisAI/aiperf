@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 import socket
+import sys
 from dataclasses import dataclass
 from typing import Any
 
@@ -53,9 +54,21 @@ class SocketDefaults:
                 socket.SOL_TCP, socket.TCP_KEEPCNT, Environment.HTTP.TCP_KEEPCNT
             )
 
-        # Buffer size optimizations for streaming
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, Environment.HTTP.SO_RCVBUF)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, Environment.HTTP.SO_SNDBUF)
+        # Buffer size optimizations for streaming. Windows-only skip: setting
+        # SO_SNDBUF/SO_RCVBUF explicitly on Windows disables TCP Auto-Tuning
+        # (the OS no longer dynamically sizes the buffer to the
+        # bandwidth-delay product) and at large values like 10MB causes
+        # head-of-line blocking under concurrency. We've observed aiohttp
+        # requests stalling for 9+ minutes at --concurrency 6 on Windows
+        # Python 3.13 with these values set; the Linux streaming use case
+        # that motivated the explicit sizes doesn't apply on Windows.
+        if sys.platform != "win32":
+            sock.setsockopt(
+                socket.SOL_SOCKET, socket.SO_RCVBUF, Environment.HTTP.SO_RCVBUF
+            )
+            sock.setsockopt(
+                socket.SOL_SOCKET, socket.SO_SNDBUF, Environment.HTTP.SO_SNDBUF
+            )
 
         # Linux-specific TCP optimizations
         if hasattr(socket, "TCP_QUICKACK"):
