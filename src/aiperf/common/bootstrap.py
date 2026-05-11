@@ -241,9 +241,17 @@ def _redirect_stdio_to_devnull() -> None:
     # closefd=False keeps FD ownership at the OS level so that if these
     # stream objects are garbage-collected (e.g. replaced by test frameworks),
     # the underlying FDs 0/1/2 stay open and the /dev/null redirect holds.
-    sys.stdin = os.fdopen(0, "r", closefd=False)
-    sys.stdout = os.fdopen(1, "w", closefd=False)
-    sys.stderr = os.fdopen(2, "w", closefd=False)
+    #
+    # encoding="utf-8" is critical on Windows: without it, os.fdopen picks
+    # the system default (cp1252) which can't encode common Unicode chars
+    # (box-drawing arrows, emoji, etc.) used in aiperf's TRACE-level log
+    # messages. The first such write triggers UnicodeEncodeError, which
+    # Python's logging then re-emits as another UnicodeEncodeError on top,
+    # cascading into a flood that wedges the child before it can register.
+    # errors="replace" guards against any non-UTF8 binary slipping through.
+    sys.stdin = os.fdopen(0, "r", encoding="utf-8", errors="replace", closefd=False)
+    sys.stdout = os.fdopen(1, "w", encoding="utf-8", errors="replace", closefd=False)
+    sys.stderr = os.fdopen(2, "w", encoding="utf-8", errors="replace", closefd=False)
 
 
 def _start_yappi_profiling() -> None:
