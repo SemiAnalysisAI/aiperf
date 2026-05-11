@@ -525,7 +525,7 @@ class AIPerfCLI:
     def run_sync(
         self,
         command: str,
-        timeout: float = 300.0,  # accommodates slow Windows multiprocessing.spawn
+        timeout: float = 600.0,  # accommodates slow Windows Py 3.13 multiprocessing.spawn
         assert_success: bool = True,
     ) -> AIPerfResults:
         """Run aiperf command and return results."""
@@ -541,7 +541,7 @@ class AIPerfCLI:
     async def run(
         self,
         command: str,
-        timeout: float = 300.0,  # accommodates slow Windows multiprocessing.spawn
+        timeout: float = 600.0,  # accommodates slow Windows Py 3.13 multiprocessing.spawn
         assert_success: bool = True,
     ) -> AIPerfResults:
         """Run aiperf command and return results.
