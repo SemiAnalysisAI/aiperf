@@ -52,14 +52,15 @@ class IntegrationTestDefaults:
     workers_max: int = 1
     concurrency: int = 2
     request_count: int = 10
-    # 600s accommodates slow Windows multiprocessing.spawn on Python 3.13.
-    # Per-iteration cost on Windows: ~15s on Py 3.10, ~35-45s on Py 3.13
-    # (~2x slower). Long sweeps (test_sweep_level_statistics, 12 iterations)
-    # therefore need ~540s on VDI Py 3.13. Pair with pytest --timeout >= 660
-    # so the in-fixture SIGINT/terminate/kill cascade fires before pytest
-    # gives up. POSIX runs are unaffected — single-shot tests still finish
-    # in seconds; this default only matters for slow Windows hangs/timeouts.
-    timeout: float = 600.0
+    # 450s accommodates slow Windows multiprocessing.spawn on Python 3.13.
+    # Per-iteration cost on Windows after the SO_SNDBUF/SO_RCVBUF fix:
+    # ~15s on Py 3.10, ~33s on Py 3.13. Long sweeps need:
+    #   - test_sweep_with_confidence_repeated_mode (9 iter): ~298s on VDI
+    #   - test_sweep_level_statistics (12 iter): ~400s on VDI
+    # Pair with pytest --timeout >= 465 so the in-fixture
+    # SIGINT/terminate/kill cascade fires before pytest gives up. POSIX runs
+    # are unaffected — single-shot tests still finish in seconds.
+    timeout: float = 450.0
     ui: str = "simple"
 
 
