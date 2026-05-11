@@ -219,9 +219,23 @@ def _redirect_stdio_to_devnull() -> None:
     # os.open on /dev/null hits a kernel fast path (no disk I/O), so
     # the blocking calls are safe here.
     devnull_fd = os.open(os.devnull, os.O_RDWR)
-    for fd in (0, 1, 2):
-        os.dup2(devnull_fd, fd)
+    os.dup2(devnull_fd, 0)
+    os.dup2(devnull_fd, 1)
     os.close(devnull_fd)
+
+    # stderr: redirect to a per-PID file rather than NUL. Releases the
+    # inherited stderr pipe handle from the parent (same shutdown rationale
+    # as fd 1), AND preserves uncaught Python tracebacks for postmortem —
+    # otherwise child crashes are invisible because Python's default
+    # ``sys.excepthook`` writes to stderr. The file is named per-pid so
+    # multiple spawned children don't collide. Kept on a tmp path so it's
+    # cleaned up by the OS.
+    import tempfile
+
+    err_path = f"{tempfile.gettempdir()}{os.sep}aiperf_child_{os.getpid()}_stderr.log"
+    err_fd = os.open(err_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
+    os.dup2(err_fd, 2)
+    os.close(err_fd)
 
     # Recreate Python-level streams from the redirected OS FDs.
     # closefd=False keeps FD ownership at the OS level so that if these
