@@ -49,6 +49,18 @@ def bootstrap_and_run_service(
             the child process logging will be set up.
         kwargs: Additional keyword arguments to pass to the service constructor.
     """
+    is_child_process = multiprocessing.parent_process() is not None
+
+    # Release inherited terminal/pipe FDs in spawned children BEFORE anything
+    # else runs in this process. See _redirect_stdio_to_devnull for the
+    # per-platform reasoning. Doing it later (e.g. inside the async event
+    # loop) is too late on Python 3.13: by that point asyncio/logging have
+    # already grabbed C-level references to the inherited fd 1/2, and a
+    # later dup2-to-NUL no longer releases the parent's pipe handles fully —
+    # the parent's `process.communicate()` never sees EOF and hangs.
+    if (IS_MACOS or IS_WINDOWS) and is_child_process:
+        _redirect_stdio_to_devnull()
+
     # Ignore SIGINT and SIGTERM in child processes. SIGINT is ignored so only
     # the parent handles Ctrl+C. SIGTERM is ignored because graceful shutdown is
     # handled via the message bus (ShutdownCommand); process.terminate() is only
@@ -56,7 +68,7 @@ def bootstrap_and_run_service(
     # falls through to SIGKILL after the join timeout anyway. Ignoring SIGTERM
     # prevents SIGSEGV crashes that occur when SIGTERM arrives while C extension
     # code (uvloop, zmq, aiohttp, orjson) is executing.
-    if multiprocessing.parent_process() is not None:
+    if is_child_process:
         signal.signal(signal.SIGINT, signal.SIG_IGN)
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
 
@@ -88,7 +100,6 @@ def bootstrap_and_run_service(
         # Disable health server in child processes to prevent port conflicts.
         # Multiple child processes on the same host cannot bind to the same port.
         # The main process (SystemController) handles health probes for local mode.
-        is_child_process = multiprocessing.parent_process() is not None
         if is_child_process:
             Environment.SERVICE.HEALTH_ENABLED = False
 
@@ -131,11 +142,6 @@ def bootstrap_and_run_service(
         setup_child_process_logging(
             log_queue, service.service_id, service_config, user_config
         )
-
-        # Release inherited terminal/pipe FDs in spawned children. See
-        # _redirect_stdio_to_devnull for the per-platform reasoning.
-        if (IS_MACOS or IS_WINDOWS) and is_child_process:
-            _redirect_stdio_to_devnull()
 
         # Initialize global RandomGenerator for reproducible random number generation
         from aiperf.common import random_generator as rng
