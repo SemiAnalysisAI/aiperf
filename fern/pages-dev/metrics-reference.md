@@ -65,6 +65,7 @@ This document provides a comprehensive reference of all metrics available in AIP
     - [Total Usage Total Tokens](#total-usage-total-tokens)
     - [Total Usage Reasoning Tokens](#total-usage-reasoning-tokens)
     - [Total Usage Prompt Cache Read Tokens](#total-usage-prompt-cache-read-tokens)
+    - [Overall Usage Prompt Cache Read %](#overall-usage-prompt-cache-read-)
     - [Total Usage Prompt Cache Write Tokens](#total-usage-prompt-cache-write-tokens)
     - [Total Usage Prompt Cache Miss Tokens](#total-usage-prompt-cache-miss-tokens)
     - [Total Usage Prompt Audio Tokens](#total-usage-prompt-audio-tokens)
@@ -83,6 +84,7 @@ This document provides a comprehensive reference of all metrics available in AIP
     - [OSL Mismatch Count](#osl-mismatch-count)
   - [Goodput Metrics](#goodput-metrics)
     - [Good Request Count](#good-request-count)
+    - [Good Request Fraction](#good-request-fraction)
     - [Goodput](#goodput)
   - [Error Metrics](#error-metrics)
     - [Error Input Sequence Length](#error-input-sequence-length)
@@ -110,6 +112,11 @@ This document provides a comprehensive reference of all metrics available in AIP
     - [HTTP Connection Reused](#http-connection-reused)
     - [HTTP Chunks Sent](#http-chunks-sent)
     - [HTTP Chunks Received](#http-chunks-received)
+  - [GPU Power Efficiency Metrics](#gpu-power-efficiency-metrics)
+    - [Total GPU Power](#total-gpu-power)
+    - [Total GPU Energy](#total-gpu-energy)
+    - [Output Tokens per Joule](#output-tokens-per-joule)
+    - [Energy per User](#energy-per-user)
 - [Metric Flags Reference](#metric-flags-reference)
 
 ---
@@ -988,6 +995,24 @@ total_usage_prompt_cache_read_tokens = sum(r.usage_prompt_cache_read_tokens for 
 
 ---
 
+### Overall Usage Prompt Cache Read %
+
+**Type:** [Derived Metric](#derived-metrics)
+
+Run-aggregate share of input tokens served from prompt cache, weighted by token volume. Computed from the run totals so a request with 10k prompt tokens contributes 100x as much weight as a request with 100 prompt tokens — the resulting number reflects the actual fraction of input tokens the API served from cache across the whole benchmark.
+
+**Formula:**
+```python
+overall_usage_prompt_cache_read_pct = (
+    total_usage_prompt_cache_read_tokens / total_usage_prompt_tokens
+) * 100
+```
+
+**Notes:**
+- No value is produced if `total_usage_prompt_tokens` is zero (e.g. all requests errored before reporting usage).
+
+---
+
 ### Total Usage Prompt Cache Write Tokens
 
 **Type:** [Derived Metric](#derived-metrics)
@@ -1247,7 +1272,7 @@ osl_mismatch_count = sum(1 for r in records if diff_tokens > threshold_tokens)
 | [vLLM](https://docs.vllm.ai/en/latest/api/vllm/sampling_params/) | `min_tokens` | Default: 0 |
 | [TensorRT-LLM](https://nvidia.github.io/TensorRT-LLM/llm-api/reference.html) | `min_tokens` | Default: 1 |
 | [SGLang](https://github.com/sgl-project/sglang) | `min_new_tokens` | Default: 0 |
-| [TGI](https://github.com/huggingface/text-generation-inference) | `min_new_tokens` | ⚠️ Unclear API support; TGI in maintenance mode |
+| [TGI](https://github.com/huggingface/text-generation-inference) | `min_new_tokens` | Unclear API support; TGI in maintenance mode |
 
 ---
 
@@ -1272,6 +1297,34 @@ good_request_count = sum(1 for r in records if r.all_slos_met)
 - Requires SLO thresholds to be configured (e.g., `--goodput`).
 - Only counts requests where ALL SLO constraints are satisfied.
 - Used to calculate Goodput metric.
+
+---
+
+### Good Request Fraction
+
+**Type:** [Derived Metric](#derived-metrics)
+
+**Tag:** `good_request_fraction`
+
+The fraction of all attempted requests that satisfied every per-request SLO. Returns a ratio in `[0.0, 1.0]`. Errored requests count toward the denominator so a backend that drops traffic under load cannot look "good" simply because the surviving requests stayed under the latency budget.
+
+**Formula:**
+```python
+attempted = request_count + error_request_count
+good_request_fraction = good_request_count / attempted if attempted > 0 else 0.0
+```
+
+**Flags:** `GOODPUT | LARGER_IS_BETTER | NO_CONSOLE`
+
+**Unit:** `RATIO` (0.0–1.0)
+
+**Required upstream metrics:** `good_request_count`, `request_count`. `error_request_count` is included in the denominator when present (it is `ERROR_ONLY` and absent on clean runs).
+
+**Notes:**
+- Requires SLO thresholds to be configured (e.g., `--goodput`); without SLOs, `good_request_count` is always 0 and this metric is 0.
+- Returns `0.0` when no requests were attempted (`request_count + error_request_count == 0`).
+- Hidden from console output (`NO_CONSOLE`); appears in JSON, CSV, and Parquet exports.
+- Powers the SLA-feasibility gate of the [`max-goodput-under-slo`](sweeping/search-recipes.md) search recipe (`good_request_fraction:avg:ge:<attainment>`); without it, the recipe filter dereferences a missing tag and Bayesian optimization treats every iteration as infeasible.
 
 ---
 
@@ -1696,6 +1749,106 @@ http_req_chunks_received = trace.response_chunks_count
 
 ---
 
+## GPU Power Efficiency Metrics
+
+<Note>
+All metrics in this section require `--gpu-telemetry` to be enabled and the underlying collector (DCGM, pynvml, or amdsmi) to expose the relevant signal (`gpu_power_usage` and/or `energy_consumption`). They are computed once per profiling phase by `GPUTelemetryAccumulator.compute_efficiency_metrics`, not by the standard derivation walk — see the [Externally-Injected Derived Metric pattern](dev/patterns.md#externally-injected-derived-metric-pattern).
+</Note>
+
+Each metric's header surfaces the number of GPUs that contributed valid data (e.g. `Total GPU Power (8 GPUs)`), so a partial-cohort run (where one or more GPUs failed to report) is distinguishable from a full run. Tags are emitted in this order when present: `total_gpu_power`, `total_gpu_energy`, `output_tokens_per_joule`, `energy_per_user`. Each tag is independently omitted when its underlying signal is unavailable.
+
+### Total GPU Power
+
+**Type:** [Derived Metric](#derived-metrics) (externally injected)
+
+Sum of average GPU power across all reporting GPUs during the profiling phase, in watts. Useful as a baseline for cross-run power comparisons.
+
+**Formula:**
+```python
+# Per GPU: average of gpu_power_usage gauge samples in the profiling window
+# (warmup excluded). Summed across all GPUs that reported valid samples.
+total_gpu_power_w = sum(
+    avg(gpu_power_usage[start_ns:end_ns])
+    for gpu in reporting_gpus
+)
+```
+
+**Notes:**
+- Unit: watts (`W`).
+- Time-filtered to the profiling-phase window; warmup samples are excluded.
+- Power is a gauge, so the window stays bounded — post-bench idle samples don't drag the average down.
+- Omitted when no GPU reports `gpu_power_usage` in the window.
+
+---
+
+### Total GPU Energy
+
+**Type:** [Derived Metric](#derived-metrics) (externally injected)
+
+Sum of energy consumed across all reporting GPUs during the profiling phase, in joules. Computed as a counter delta (`final − baseline`) per GPU and summed.
+
+**Formula:**
+```python
+# Per GPU: delta of the energy_consumption monotonic counter over the
+# profiling window, widened on the end by FINAL_SCRAPE_GRACE_NS so the
+# trailing scrape that lands just after requests_end_ns is captured.
+grace_ns = Environment.GPU.FINAL_SCRAPE_GRACE_NS  # default 666_000_000 (~666 ms)
+total_gpu_energy_j = sum(
+    delta(energy_consumption[start_ns : end_ns + grace_ns])
+    for gpu in reporting_gpus
+)
+# Negative deltas are clamped to 0 to handle counter resets (DCGM restart).
+```
+
+**Notes:**
+- Unit: joules (`J`). Source samples are reported in megajoules and converted via `EnergyMetricUnit.MEGAJOULE.joules`.
+- The end-of-window grace is bounded (not open-ended) so cooldown samples and any subsequent-phase samples cannot leak into the delta. Tune via `AIPERF_GPU_FINAL_SCRAPE_GRACE_NS` if you also tune `AIPERF_GPU_COLLECTION_INTERVAL` — keep grace at roughly `2x` the collection cadence.
+- Per-GPU deltas use the nearest non-NaN baseline and the nearest non-NaN final sample; arrays containing transient NaN sensor failures still yield a meaningful delta.
+- Omitted when no GPU reports `energy_consumption` in the window.
+
+---
+
+### Output Tokens per Joule
+
+**Type:** [Derived Metric](#derived-metrics) (externally injected)
+
+Inference energy efficiency: number of output tokens produced per joule of GPU energy consumed during the profiling phase. Higher is better.
+
+**Formula:**
+```python
+output_tokens_per_joule = total_output_tokens / total_gpu_energy
+```
+
+**Notes:**
+- Unit: `tokens/J`.
+- Flagged `LARGER_IS_BETTER | PRODUCES_TOKENS_ONLY`.
+- Numerator comes from the request records (`total_output_tokens`); denominator comes from the GPU telemetry counter delta above. The header reports the energy-side GPU count, since that's the cohort the metric depends on.
+- Omitted when `total_output_tokens` is absent from the records or aggregate `total_gpu_energy` is zero.
+
+---
+
+### Energy per User
+
+**Type:** [Derived Metric](#derived-metrics) (externally injected)
+
+Per-user energy footprint during the profiling phase: total GPU energy consumed divided by the configured concurrency. Lower is better — a more efficient deployment serves the same load for less energy per concurrent user.
+
+**Formula:**
+```python
+# concurrency from the resolved profiling phase config
+# (run.cfg.get_profiling_phases()[0].concurrency).
+energy_per_user_j = total_gpu_energy / concurrency
+```
+
+**Notes:**
+- Unit: `joules/user`.
+- Flagged `MetricFlags.NONE` — smaller-is-better is the default for unflagged metrics.
+- Denominator is the profiling phase's configured `concurrency`. The resolver defaults this to `1` when `--concurrency` isn't specified in concurrency-mode runs, so the metric is emitted in the common case.
+- Header reports the energy-side GPU count (the same cohort `total_gpu_energy` reports), e.g. `Energy per User (8 GPUs)`.
+- Omitted when concurrency is unset (e.g. pure `--request-rate` mode) or aggregate GPU energy is unavailable.
+
+---
+
 ## Multi-Run Aggregate Metrics
 
 <Note>These metrics are only available when using `--num-profile-runs > 1` for confidence reporting.</Note>
@@ -1790,3 +1943,124 @@ class MyUsageMetric(BaseRecordMetric[int]):
 ```
 
 ---
+
+## Timing Namespace (`aiperf.timing.*`)
+
+The `TimingResultsStrategy` emits phase-level timing snapshots as OTel counters and up-down-counters under the `aiperf.timing.*` namespace. These metrics track credit-phase progression in real time and are sourced from `CreditPhaseStats` fields.
+
+### Counters
+
+| Metric Name | OTel Instrument | Unit | Description | `CreditPhaseStats` Field | Requirement |
+|---|---|---|---|---|---|
+| `aiperf.timing.requests.sent` | Counter | `1` | Total requests dispatched in this phase | `requests_sent` | 13.2 |
+| `aiperf.timing.requests.completed` | Counter | `1` | Requests that received a complete response | `requests_completed` | 13.2 |
+| `aiperf.timing.requests.cancelled` | Counter | `1` | Requests cancelled before completion | `requests_cancelled` | 13.2 |
+| `aiperf.timing.requests.errors` | Counter | `1` | Requests that ended in error | `request_errors` | 13.2 |
+| `aiperf.timing.sessions.sent` | Counter | `1` | Sessions initiated in this phase | `sent_sessions` | 13.2 |
+| `aiperf.timing.sessions.completed` | Counter | `1` | Sessions that finished all turns | `completed_sessions` | 13.2 |
+| `aiperf.timing.sessions.cancelled` | Counter | `1` | Sessions cancelled before completion | `cancelled_sessions` | 13.2 |
+| `aiperf.timing.sessions.turns_total` | Counter | `1` | Cumulative session turns executed | `total_session_turns` | 13.2 |
+
+### Up-Down-Counters (Gauges)
+
+| Metric Name | OTel Instrument | Unit | Description | `CreditPhaseStats` Field | Requirement |
+|---|---|---|---|---|---|
+| `aiperf.timing.requests.in_flight` | UpDownCounter | `1` | Requests currently awaiting a response | `in_flight_requests` | 13.2 |
+| `aiperf.timing.sessions.in_flight` | UpDownCounter | `1` | Sessions with at least one turn in progress | `in_flight_sessions` | 13.2 |
+| `aiperf.timing.phase.timeout_triggered` | UpDownCounter | `1` | Whether the phase hard-timeout fired (0 or 1) | `timeout_triggered` | 13.2 |
+| `aiperf.timing.phase.grace_timeout_triggered` | UpDownCounter | `1` | Whether the grace-period timeout fired (0 or 1) | `grace_period_timeout_triggered` | 13.2 |
+| `aiperf.timing.phase.was_cancelled` | UpDownCounter | `1` | Whether the phase was user-cancelled (0 or 1) | `was_cancelled` | 13.2 |
+| `aiperf.timing.phase.elapsed_sec` | UpDownCounter | `s` | Wall-clock seconds elapsed in the phase | `requests_elapsed_time` | 13.2 |
+
+**Notes:**
+- All timing metrics carry the three GenAI spec Required attributes (`gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`) so they can be joined with spec-named request metrics in dashboards.
+- Counter metrics emit deltas (current - previous snapshot) and skip zero-delta updates.
+- Up-down-counter metrics emit the signed difference from the previous snapshot and skip near-zero (< 1e-9) deltas.
+
+---
+
+## OpenTelemetry GenAI Semantic Convention Mapping
+
+AIPerf translates its internal metric names onto the [OTel GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-metrics/) so that downstream dashboards and alerting can consume spec-standard metric names directly.
+
+### Metric Name Rename Table
+
+| AIPerf Source | GenAI Spec Metric | Unit | Instrument |
+|---|---|---|---|
+| `request_latency` | `gen_ai.client.operation.duration` | s | Histogram |
+| `time_to_first_token` | `gen_ai.client.operation.time_to_first_chunk` | s | Histogram |
+| `inter_token_latency` | `gen_ai.client.operation.time_per_output_chunk` | s | Histogram |
+| `input_token_count` + `output_token_count` (merged) | `gen_ai.client.token.usage` with `gen_ai.token.type=input\|output` | {token} | Histogram |
+
+Duration metrics are converted from nanoseconds to seconds. Token counts use the identity conversion.
+
+### `gen_ai.operation.name` Mapping
+
+Derived from the AIPerf `endpoint.type` configuration value:
+
+| AIPerf `endpoint.type` | `gen_ai.operation.name` |
+|---|---|
+| `chat` | `chat` |
+| `completions` | `text_completion` |
+| `embeddings` | `embeddings` |
+| anything else | `chat` (fallback) |
+
+### `gen_ai.provider.name` Host Auto-Inference
+
+The provider attribute is resolved using the following precedence:
+
+1. Explicit `--gen-ai-provider` CLI override (highest priority)
+2. Host pattern inference from the endpoint URL (see table below)
+3. `_OTHER` fallback
+
+| URL Host Pattern | Provider Value |
+|---|---|
+| `api.openai.com` | `openai` |
+| `api.anthropic.com` | `anthropic` |
+| `api.deepseek.com` | `deepseek` |
+| `api.mistral.ai` | `mistral_ai` |
+| `api.cohere.ai` / `api.cohere.com` | `cohere` |
+| `api.x.ai` | `x_ai` |
+| `api.groq.com` | `groq` |
+| `api.perplexity.ai` | `perplexity` |
+| `generativelanguage.googleapis.com` | `gcp.gemini` |
+| `*-aiplatform.googleapis.com` | `gcp.vertex_ai` |
+| `bedrock-runtime.*.amazonaws.com` | `aws.bedrock` |
+| `*.openai.azure.com` | `azure.ai.openai` |
+| `*.services.ai.azure.com` | `azure.ai.inference` |
+| `*.ibm.com` (with Watsonx paths) | `ibm.watsonx.ai` |
+| anything else | `_OTHER` |
+
+### `error.type` Classification
+
+Error conditions on individual requests are classified into spec-standard `error.type` attribute values:
+
+| AIPerf Condition | `error.type` Value |
+|---|---|
+| asyncio/HTTP timeout | `timeout` |
+| HTTP 5xx response | `http_5xx` |
+| HTTP 4xx response | `http_4xx` |
+| JSON parse error | `parse_error` |
+| User-initiated cancel | `cancelled` |
+| anything else | `_OTHER` |
+
+The `error.type` attribute is only attached when an error is present; successful requests omit it entirely.
+
+### Timing Namespace and GenAI Spec Interoperability
+
+The `aiperf.timing.*` metrics retain AIPerf-specific names because the GenAI semantic convention specification has no equivalent phase-level timing metrics. However, these metrics receive the same Required attributes (`gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`) as the spec-named request metrics so that downstream systems can join across both namespaces for correlation and alerting.
+
+### Metrics NOT Emitted
+
+AIPerf is a client-side benchmarking tool and does **not** emit any server-side metrics:
+
+- No `gen_ai.server.*` metrics are produced.
+
+AIPerf also does **not** emit any opt-in GenAI events:
+
+- `gen_ai.input.messages`
+- `gen_ai.output.messages`
+- `gen_ai.system_instructions`
+- `gen_ai.tool.definitions`
+
+These events are excluded because AIPerf's purpose is performance measurement, not request/response content logging.

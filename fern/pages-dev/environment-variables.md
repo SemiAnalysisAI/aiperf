@@ -23,6 +23,14 @@ Environment variable names, default values, and definitions are subject to chang
 These settings may be modified, renamed, or removed in future releases.
 </Warning>
 
+## CLI RUNNER
+
+CLI runner post-run callback behavior. Controls whether OnComplete callback exceptions abort the run after all callbacks attempt or are isolated and logged. Default is isolated so that a single misbehaving callback (e.g. auto-plot in strict mode, third-party hook) cannot bypass the deliberate ``os._exit`` hang-protection that guards against multiprocessing/ZMQ teardown hangs in the parent process.
+
+| Environment Variable | Default | Constraints | Description |
+|----------------------|---------|-------------|-------------|
+| `AIPERF_RAISE_ON_CALLBACK_ERROR` | `False` | — | When true, re-raise the first OnComplete callback exception after running all remaining callbacks but before os._exit. Provides a strict-mode contract where a callback raise propagates out of the runner. When false (default) the exception is logged with full traceback, the exit code is forced non-zero, and the process still terminates via os._exit so leftover ZMQ/multiprocessing state cannot hang the interpreter. |
+
 ## APISERVER
 
 API server settings. Controls the host and port of the API server.
@@ -33,6 +41,7 @@ API server settings. Controls the host and port of the API server.
 | `AIPERF_API_SERVER_PORT` | `None` | ≥ 1, ≤ 65535 | Port to bind the API server to |
 | `AIPERF_API_SERVER_CORS_ORIGINS` | `[]` | — | List of CORS origins to allow (empty = no CORS, ['*'] = all origins) |
 | `AIPERF_API_SERVER_SHUTDOWN_TIMEOUT` | `5.0` | ≥ 1.0, ≤ 300.0 | Timeout in seconds for graceful API server shutdown before force-cancelling |
+| `AIPERF_API_SERVER_POST_COMPLETE_GRACE` | `5.0` | ≥ 0.0, ≤ 300.0 | Seconds the API listener stays open after a benchmark terminates so polling clients can observe the final status before the server shuts down. Set to 0 to skip the grace window and shut down immediately. |
 
 ## COMPRESSION
 
@@ -44,14 +53,13 @@ Compression settings for streaming file transfers. Controls chunk size and compr
 | `AIPERF_COMPRESSION_ZSTD_LEVEL` | `3` | ≥ 1, ≤ 22 | Zstandard compression level (1=fastest, 22=best compression, default: 3) |
 | `AIPERF_COMPRESSION_GZIP_LEVEL` | `6` | ≥ 1, ≤ 9 | Gzip compression level (1=fastest, 9=best compression, default: 6) |
 
-## CONFIG
+## DAG
 
-Configuration file paths for distributed deployments. Controls paths to configuration files loaded by services running in containers. These are primarily used by `aiperf service` when running in Kubernetes.
+Settings for DAG benchmark mode (`dag_jsonl` input type).
 
 | Environment Variable | Default | Constraints | Description |
 |----------------------|---------|-------------|-------------|
-| `AIPERF_CONFIG_SERVICE_FILE` | `None` | — | Path to service configuration JSON/YAML file. Default: /etc/aiperf/service_config.json in Kubernetes deployments. |
-| `AIPERF_CONFIG_USER_FILE` | `None` | — | Path to user configuration JSON/YAML file. Default: /etc/aiperf/user_config.json in Kubernetes deployments. |
+| `AIPERF_DAG_FAIL_FAST` | `False` | — | When True, abort the whole run on the first DAG child error (cancel pending siblings, raise to PhaseRunner, terminate phase). Default False - the orchestrator counts the error in BranchStats.children_errored, releases the join slot, drains pending siblings, and continues the run. Set via AIPERF_DAG_FAIL_FAST=1 for strict CI assertions. |
 
 ## DATASET
 
@@ -64,6 +72,7 @@ Dataset loading and configuration. Controls timeouts and behavior for dataset lo
 | `AIPERF_DATASET_PUBLIC_DATASET_TIMEOUT` | `300.0` | ≥ 1.0, ≤ 100000.0 | Timeout in seconds for public dataset loading operations |
 | `AIPERF_DATASET_MEDIA_DOWNLOAD_TIMEOUT` | `60.0` | ≥ 1.0, ≤ 100000.0 | Timeout in seconds per media URL download when inline encoding is required |
 | `AIPERF_DATASET_MEDIA_DOWNLOAD_MAX_CONCURRENCY` | `10` | ≥ 1, ≤ 100 | Maximum number of concurrent media URL downloads |
+| `AIPERF_DATASET_INLINE_RECORDS_WARN_THRESHOLD` | `500` | ≥ 1 | Soft warning threshold for the number of inline `records:` entries on a `FileDataset`. When total inline records exceed this value, the config loader logs a warning suggesting the user move the dataset to a JSONL file. No hard cap. |
 
 ## GPU
 
@@ -74,6 +83,7 @@ GPU telemetry collection configuration. Controls GPU metrics collection frequenc
 | `AIPERF_GPU_COLLECTION_INTERVAL` | `0.333` | ≥ 0.01, ≤ 300.0 | GPU telemetry metrics collection interval in seconds (default: 333ms, ~3Hz) |
 | `AIPERF_GPU_DEFAULT_DCGM_ENDPOINTS` | `['http://localhost:9400/metrics', 'http://localhost:9401/metrics']` | — | Default DCGM endpoint URLs to check for GPU telemetry (comma-separated string or JSON array) |
 | `AIPERF_GPU_EXPORT_BATCH_SIZE` | `100` | ≥ 1, ≤ 1000000 | Batch size for telemetry record export results processor |
+| `AIPERF_GPU_FINAL_SCRAPE_GRACE_NS` | `666000000` | ≥ 0, ≤ 60000000000 | Grace window in nanoseconds appended to phase end_ns when computing the GPU energy-counter delta. Energy is scraped on a cadence (see COLLECTION_INTERVAL), so the trailing scrape often lands after the phase ends; this grace lets it be included while bounding the window so cooldown/idle samples and subsequent-phase samples don't leak into the delta. Default 666_000_000 ns ~= 2x the default 333 ms COLLECTION_INTERVAL; raise this if you also raise COLLECTION_INTERVAL. |
 | `AIPERF_GPU_REACHABILITY_TIMEOUT` | `10` | ≥ 1, ≤ 300 | Timeout in seconds for checking GPU telemetry endpoint reachability during init |
 | `AIPERF_GPU_SHUTDOWN_DELAY` | `5.0` | ≥ 1.0, ≤ 300.0 | Delay in seconds before shutting down GPU telemetry service to allow command response transmission |
 | `AIPERF_GPU_THREAD_JOIN_TIMEOUT` | `5.0` | ≥ 1.0, ≤ 300.0 | Timeout in seconds for joining GPU telemetry collection threads during shutdown |
@@ -124,6 +134,25 @@ Metrics collection and storage configuration. Controls metrics storage allocatio
 | `AIPERF_METRICS_OSL_MISMATCH_MAX_TOKEN_THRESHOLD` | `50` | ≥ 1 | Maximum absolute token threshold for OSL mismatch. The effective threshold is min(requested_osl * pct_threshold, this value). Makes threshold tighter for large OSL values (default: 50 tokens) |
 | `AIPERF_METRICS_TDIGEST_COMPRESSION` | `500` | ≥ 20, ≤ 10000 | t-digest sketch compression for list-valued record metric aggregation. Higher = more centroids, tighter percentile accuracy, larger sketch. Default 500 measured to keep worst-case relative percentile error under 0.05% on 50M-sample workloads (40x under the 0.5% claimed accuracy band) at ~4 KB sketch size. |
 
+## MLFLOW
+
+MLflow export configuration. Controls timeout behavior for post-run MLflow artifact uploads.
+
+| Environment Variable | Default | Constraints | Description |
+|----------------------|---------|-------------|-------------|
+| `AIPERF_MLFLOW_EXPORT_TIMEOUT_SECONDS` | `30.0` | ≥ 1.0, ≤ 600.0 | Timeout in seconds for the post-run MLflow export operation. If the MLflow tracking server is unreachable, the export will be abandoned after this duration rather than blocking indefinitely. |
+
+## OTEL
+
+OpenTelemetry metrics streaming configuration. Controls buffering and flush behavior for OTLP metric streaming.
+
+| Environment Variable | Default | Constraints | Description |
+|----------------------|---------|-------------|-------------|
+| `AIPERF_OTEL_FLUSH_INTERVAL_SECONDS` | `2.0` | ≥ 0.1, ≤ 60.0 | Interval in seconds between periodic OTel metrics flushes |
+| `AIPERF_OTEL_MAX_BATCH_RECORDS` | `500` | ≥ 1, ≤ 1000000 | Maximum number of metric records to include in a single OTel flush |
+| `AIPERF_OTEL_MAX_BUFFERED_RECORDS` | `10000` | ≥ 1, ≤ 10000000 | Maximum number of buffered metric records before oldest records are dropped |
+| `AIPERF_OTEL_REQUEST_TIMEOUT_SECONDS` | `10.0` | ≥ 0.1, ≤ 300.0 | Timeout in seconds for OTel collector HTTP requests |
+
 ## RECORD
 
 Record processing and export configuration. Controls batch sizes, processor scaling, and progress reporting for record processing.
@@ -135,6 +164,18 @@ Record processing and export configuration. Controls batch sizes, processor scal
 | `AIPERF_RECORD_PROCESSOR_SCALE_FACTOR` | `4` | ≥ 1, ≤ 100 | Scale factor for number of record processors to spawn based on worker count. Formula: 1 record processor for every X workers |
 | `AIPERF_RECORD_PROGRESS_REPORT_INTERVAL` | `2.0` | ≥ 0.1, ≤ 600.0 | Interval in seconds between records progress report messages |
 | `AIPERF_RECORD_PROCESS_RECORDS_TIMEOUT` | `300.0` | ≥ 1.0, ≤ 100000.0 | Timeout in seconds for processing record results |
+
+## SEARCHPLANNER
+
+Adaptive-search planner tunables. Controls precision targets, warmup-phase injection, and request-count presets for the smooth-isotonic and monotonic SLA-saturation search planners. All values are read at planner-construction or iteration-mutate time, so changes take effect on the next search run.
+
+| Environment Variable | Default | Constraints | Description |
+|----------------------|---------|-------------|-------------|
+| `AIPERF_SEARCH_PLANNER_SLA_PRECISION_DEFAULT` | `0.05` | > 0.0, &lt; 1.0 | Default SLA boundary search precision target. The bisection / smooth-isotonic bracket halts when (infeasible_min - feasible_max) / infeasible_min < this value, and the cliff detector requires bracket_gap > this * x_hi to report a cliff. 5% mirrors perf_analyzer's --binary-search default. |
+| `AIPERF_SEARCH_PLANNER_DEFAULT_WARMUP_SECONDS` | `30.0` | > 0.0, ≤ 100000.0 | Smooth-isotonic SLA planner: default warmup phase duration in seconds injected into each iteration's cfg when ``cfg.sla_warmup_seconds`` is unset. Spec calls for max(30s, 3*inter-batch-time) but inter-batch-time is unknown at planner-time, so 30s is the safe floor. Must be strictly positive: zero defeats the cold-KV-cache rationale that motivates the floor. |
+| `AIPERF_SEARCH_PLANNER_FIRST_PROBE_WARMUP_FLOOR` | `60.0` | > 0.0, ≤ 100000.0 | Smooth-isotonic SLA planner: minimum warmup duration in seconds for the first probe at each swept-dim value. Cold KV-cache and CUDA-graph compilation cost is largest the first time we hit a given concurrency, so floor that probe at 60s. Must be strictly positive: zero defeats the cold-KV-cache rationale. |
+| `AIPERF_SEARCH_PLANNER_REPLICATE_WARMUP_FLOOR` | `15.0` | > 0.0, ≤ 100000.0 | Smooth-isotonic SLA planner: minimum warmup duration in seconds for replicate probes at an already-probed swept-dim value. Replicates reuse the warm KV-cache / CUDA-graph state, so a shorter warmup suffices. Must be strictly positive: zero defeats the floor. |
+| `AIPERF_SEARCH_PLANNER_SLA_PRECISION_REQUESTS` | `{'tight': 10000, 'normal': 1000, 'coarse': 300}` | — | Mapping from ``cfg.sla_precision`` preset name to the ``phases.profiling.requests`` value injected when the user did not set ``requests`` explicitly on the profiling phase. Drives p99 CI width. Each value must be strictly positive — zero/negative request counts surface as iteration-time failures otherwise. Override via JSON, e.g. ``AIPERF_SEARCH_PLANNER_SLA_PRECISION_REQUESTS='{"tight": 20000}'``. |
 
 ## SERVERMETRICS
 
@@ -161,7 +202,7 @@ Service lifecycle and inter-service communication configuration. Controls timeou
 | `AIPERF_SERVICE_CREDIT_PROGRESS_REPORT_INTERVAL` | `2.0` | ≥ 1, ≤ 100000.0 | Interval in seconds between credit progress report messages |
 | `AIPERF_SERVICE_DISABLE_UVLOOP` | `False` | — | Disable uvloop and use default asyncio event loop instead |
 | `AIPERF_SERVICE_HEARTBEAT_INTERVAL` | `5.0` | ≥ 1.0, ≤ 100000.0 | Interval in seconds between heartbeat messages for component services |
-| `AIPERF_SERVICE_PROFILE_CONFIGURE_TIMEOUT` | `300.0` | ≥ 1.0, ≤ 100000.0 | Timeout in seconds for profile configure command |
+| `AIPERF_SERVICE_PROFILE_CONFIGURE_TIMEOUT` | `600.0` | ≥ 1.0, ≤ 100000.0 | Timeout in seconds for profile configure command |
 | `AIPERF_SERVICE_PROFILE_START_TIMEOUT` | `60.0` | ≥ 1.0, ≤ 100000.0 | Timeout in seconds for profile start command |
 | `AIPERF_SERVICE_PROFILE_CANCEL_TIMEOUT` | `10.0` | ≥ 1.0, ≤ 100000.0 | Timeout in seconds for profile cancel command |
 | `AIPERF_SERVICE_REGISTRATION_INTERVAL` | `1.0` | ≥ 1.0, ≤ 100000.0 | Interval in seconds between registration attempts for component services |
@@ -185,6 +226,15 @@ Timing manager configuration. Controls timing-related settings for credit phase 
 |----------------------|---------|-------------|-------------|
 | `AIPERF_TIMING_CANCEL_DRAIN_TIMEOUT` | `10.0` | ≥ 1.0, ≤ 300.0 | Timeout in seconds for waiting for cancelled credits to drain after phase timeout |
 | `AIPERF_TIMING_RATE_RAMP_UPDATE_INTERVAL` | `0.1` | ≥ 0.01, ≤ 10.0 | Update interval in seconds for continuous rate ramping (default 0.1s = 100ms) |
+
+## TOKENIZER
+
+Tokenizer pre-warm and loading configuration. Controls how the CLI parent pre-warms tokenizer caches before spawning AIPerf services. Pre-warming runs in subprocesses so the parent never imports the heavy native libraries (``transformers``, Rust-backed ``tokenizers``, ``tiktoken``).
+
+| Environment Variable | Default | Constraints | Description |
+|----------------------|---------|-------------|-------------|
+| `AIPERF_TOKENIZER_PRELOAD_TIMEOUT` | `120.0` | ≥ 1.0, ≤ 100000.0 | Timeout in seconds for the parent's tokenizer pre-warm phase. Bounds the total wall-clock time for all parallel subprocess pre-warms. On timeout, subprocesses are killed and AIPerf continues; child services may then download tokenizers themselves on first use. |
+| `AIPERF_TOKENIZER_SKIP_PRELOAD` | `False` | — | Skip parent-process tokenizer cache pre-warming. Intended for test harnesses that replace tokenizer loading and must avoid forked prefetch subprocesses. Production defaults to preloading. |
 
 ## UI
 
@@ -235,6 +285,8 @@ ZMQ socket and communication configuration. Controls ZMQ socket timeouts, keepal
 | `AIPERF_ZMQ_SNDTIMEO` | `300000` | ≥ 1, ≤ 10000000 | Socket send timeout in milliseconds (default: 5 minutes) |
 | `AIPERF_ZMQ_TCP_KEEPALIVE_IDLE` | `60` | ≥ 1, ≤ 100000 | Time in seconds before starting TCP keepalive probes on idle ZMQ connections |
 | `AIPERF_ZMQ_TCP_KEEPALIVE_INTVL` | `10` | ≥ 1, ≤ 100000 | Interval in seconds between TCP keepalive probes for ZMQ connections |
+| `AIPERF_ZMQ_EVENT_BUS_PROXY_FRONTEND_PORT` | `5663` | ≥ 1, ≤ 65535 | Default TCP port for the event-bus XPUB/XSUB proxy frontend (producers connect here). Single source of truth for the non-k8s comm configs (TCP, dual-bind); k8s pod manifests pull the same value via ``K8sEnvironment.PORTS.EVENT_BUS_PROXY_PUB_FRONTEND`` (defaults match). |
+| `AIPERF_ZMQ_EVENT_BUS_PROXY_BACKEND_PORT` | `5664` | ≥ 1, ≤ 65535 | Default TCP port for the event-bus XPUB/XSUB proxy backend (subscribers connect here). See ``EVENT_BUS_PROXY_FRONTEND_PORT``. |
 
 ## DEV
 
