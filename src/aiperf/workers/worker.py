@@ -101,6 +101,22 @@ def _apply_cache_bust_to_system_message(
     return system_message
 
 
+def _content_contains_marker(content: Any, marker: str) -> bool:
+    """Return whether a message/text payload already carries this marker."""
+    marker_text = marker.strip()
+    markers = [value for value in (marker, marker_text) if value]
+    if isinstance(content, str):
+        return any(value in content for value in markers)
+    if isinstance(content, list):
+        for part in content:
+            if not isinstance(part, dict):
+                continue
+            text = part.get("text")
+            if isinstance(text, str) and any(value in text for value in markers):
+                return True
+    return False
+
+
 def _inject_marker_into_raw_messages(
     raw_messages: list[dict], marker: str, *, is_prefix: bool
 ) -> None:
@@ -117,6 +133,8 @@ def _inject_marker_into_raw_messages(
     if not isinstance(first, dict) or first.get("role") != "system":
         return
     content = first.get("content", "")
+    if _content_contains_marker(content, marker):
+        return
     if isinstance(content, str):
         raw_messages[0] = {
             **first,
@@ -149,6 +167,8 @@ def _inject_marker_into_first_user_turn(
     for idx, msg in enumerate(raw_messages):
         if isinstance(msg, dict) and msg.get("role") == "user":
             content = msg.get("content", "")
+            if _content_contains_marker(content, marker):
+                return
             if isinstance(content, str):
                 raw_messages[idx] = {
                     **msg,
@@ -231,6 +251,8 @@ def _inject_marker_into_first_user_text(
         first.contents = [marker.strip()]
         return
     existing = first.contents[0]
+    if _content_contains_marker(existing, marker):
+        return
     first.contents[0] = (marker + existing) if is_prefix else (existing + marker)
 
 
@@ -277,12 +299,7 @@ def _apply_cache_bust(
     ``system_message`` nor a leading ``role=="system"`` entry in any turn's
     ``raw_messages``), the marker is routed to the first user turn with the
     same prefix/suffix orientation — i.e. SYSTEM_PREFIX falls back to a
-    first-user-turn prefix, SYSTEM_SUFFIX falls back to a first-user-turn
-    suffix. Without a system prompt the first user message is the prefix of
-    the entire wire payload, so this produces the same physical token-0
-    divergence without fabricating a system role. The fallback is gated on
-    ``credit.turn_index == 0`` (matches FIRST_TURN_* semantics: marker only
-    affects the first turn's KV cache; later turns inherit).
+    first-user-turn prefix, SYSTEM_SUFFIX falls back to a first-user-turn suffix.
     """
     marker = credit.cache_bust_marker
     target = credit.cache_bust_target
@@ -317,8 +334,7 @@ def _apply_cache_bust(
             _inject_marker_at_first_user(session.turn_list, marker, is_prefix=is_prefix)
         return system_message
 
-    if credit.turn_index == 0:
-        _inject_marker_at_first_user(session.turn_list, marker, is_prefix=is_prefix)
+    _inject_marker_at_first_user(session.turn_list, marker, is_prefix=is_prefix)
     return system_message
 
 
