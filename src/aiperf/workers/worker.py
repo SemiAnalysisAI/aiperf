@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import orjson
 
@@ -459,6 +459,9 @@ class Worker(BaseComponentService, ProcessHealthMixin):
         # One-shot warning gate so cache-bust diagnostics don't spam logs at
         # high concurrency — the misconfiguration is the same for every credit.
         self._cache_bust_warning_shown: bool = False
+
+        # Worker-local bind cache for Dynamo conversation-aware routing.
+        self._dynamo_bound_session_ids: set[str] = set()
 
         # Only used as a fallback when dataset client is not initialized
         # or was not available when the credit was dropped. Must be created here
@@ -938,6 +941,11 @@ class Worker(BaseComponentService, ProcessHealthMixin):
         credit = credit_context.credit
         if turns is None:
             turns = session.turn_list if session else []
+        turns, payload_bytes = self._add_dynamo_session_control(
+            credit=credit,
+            turns=turns,
+            payload_bytes=payload_bytes,
+        )
         return RequestInfo(
             model_endpoint=self.model_endpoint,
             credit_num=credit.id,
@@ -966,6 +974,89 @@ class Worker(BaseComponentService, ProcessHealthMixin):
             if credit.cache_bust_marker is not None
             else None,
         )
+
+    def _add_dynamo_session_control(
+        self,
+        *,
+        credit: Credit,
+        turns: list[Turn],
+        payload_bytes: bytes | None,
+    ) -> tuple[list[Turn], bytes | None]:
+        """Inject Dynamo ``nvext.session_control`` when configured.
+
+        The normal chat path merges ``Turn.extra_body`` into the wire payload.
+        Raw-payload paths bypass that formatter, so they are patched directly
+        when possible. ``payload_bytes`` is decoded only under the opt-in flag.
+        """
+        endpoint = self.model_endpoint.endpoint
+        if not endpoint.use_dynamo_conv_aware_routing:
+            return turns, payload_bytes
+
+        session_control = self._dynamo_session_control_for_credit(credit)
+        if payload_bytes is not None:
+            payload = orjson.loads(payload_bytes)
+            if not isinstance(payload, dict):
+                raise ValueError("Dynamo session_control requires object payload_bytes")
+            payload = self._merge_dynamo_session_control(payload, session_control)
+            if session_control.get("action") == "bind":
+                self._dynamo_bound_session_ids.add(session_control["session_id"])
+            return turns, orjson.dumps(payload)
+
+        if not turns:
+            return turns, payload_bytes
+
+        last_turn = turns[-1]
+        updates: dict[str, Any]
+        if last_turn.raw_payload is not None:
+            raw_payload = self._merge_dynamo_session_control(
+                last_turn.raw_payload,
+                session_control,
+            )
+            updates = {"raw_payload": raw_payload}
+        else:
+            updates = {
+                "extra_body": self._merge_dynamo_session_control(
+                    last_turn.extra_body or {},
+                    session_control,
+                )
+            }
+
+        new_turns = list(turns)
+        new_turns[-1] = last_turn.model_copy(update=updates)
+        if session_control.get("action") == "bind":
+            self._dynamo_bound_session_ids.add(session_control["session_id"])
+        return new_turns, payload_bytes
+
+    def _dynamo_session_control_for_credit(self, credit: Credit) -> dict[str, Any]:
+        session_id = self._dynamo_session_id(credit)
+        session_control: dict[str, Any] = {
+            "session_id": session_id,
+            "timeout": self.model_endpoint.endpoint.dynamo_session_timeout_seconds,
+        }
+        if session_id not in self._dynamo_bound_session_ids:
+            session_control["action"] = "bind"
+        return session_control
+
+    @staticmethod
+    def _dynamo_session_id(credit: Credit) -> str:
+        return credit.x_correlation_id
+
+    @staticmethod
+    def _merge_dynamo_session_control(
+        payload: dict[str, Any],
+        session_control: dict[str, Any],
+    ) -> dict[str, Any]:
+        merged = dict(payload)
+        raw_nvext = merged.get("nvext")
+        nvext = dict(raw_nvext) if isinstance(raw_nvext, dict) else {}
+        raw_session_control = nvext.get("session_control")
+        merged_session_control = (
+            dict(raw_session_control) if isinstance(raw_session_control, dict) else {}
+        )
+        merged_session_control.update(session_control)
+        nvext["session_control"] = merged_session_control
+        merged["nvext"] = nvext
+        return merged
 
     async def _retrieve_conversation(
         self,

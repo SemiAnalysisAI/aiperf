@@ -7,21 +7,72 @@ import pytest
 
 from aiperf.common.config.service_config import ServiceConfig
 from aiperf.common.config.user_config import UserConfig
-from aiperf.common.enums import CreditPhase
+from aiperf.common.enums import CacheBustTarget, CreditPhase
 from aiperf.common.models import (
     Conversation,
     ParsedResponse,
     ReasoningResponseData,
     RequestRecord,
     SSEMessage,
+    Text,
     TextResponseData,
+    Turn,
 )
 from aiperf.credit.structs import Credit, CreditContext
+from aiperf.workers.session_manager import UserSession
 from aiperf.workers.worker import Worker
 from tests.harness.fake_communication import FakeCommunication as FakeCommunication
 from tests.harness.fake_service_manager import FakeServiceManager as FakeServiceManager
 from tests.harness.fake_tokenizer import FakeTokenizer
 from tests.harness.fake_transport import FakeTransport as FakeTransport
+
+
+def _make_credit(
+    *,
+    conversation_id: str = "conv-a",
+    x_correlation_id: str = "xcorr-a",
+    turn_index: int = 0,
+    phase: CreditPhase = CreditPhase.PROFILING,
+    cache_bust_marker: str | None = None,
+    parent_correlation_id: str | None = None,
+) -> Credit:
+    return Credit(
+        id=1,
+        phase=phase,
+        conversation_id=conversation_id,
+        x_correlation_id=x_correlation_id,
+        turn_index=turn_index,
+        num_turns=max(turn_index + 1, 1),
+        issued_at_ns=0,
+        parent_correlation_id=parent_correlation_id,
+        cache_bust_marker=cache_bust_marker,
+        cache_bust_target=(
+            CacheBustTarget.FIRST_TURN_PREFIX
+            if cache_bust_marker
+            else CacheBustTarget.NONE
+        ),
+    )
+
+
+def _make_credit_context(credit: Credit) -> CreditContext:
+    return CreditContext(credit=credit, drop_perf_ns=0)
+
+
+def _make_session(
+    *,
+    conversation_id: str = "conv-a",
+    x_correlation_id: str = "xcorr-a",
+    turn_index: int = 0,
+    turn: Turn | None = None,
+) -> UserSession:
+    current_turn = turn or Turn(role="user", texts=[Text(contents=["hello"])])
+    return UserSession(
+        x_correlation_id=x_correlation_id,
+        num_turns=max(turn_index + 1, 1),
+        conversation=Conversation(session_id=conversation_id, turns=[current_turn]),
+        turn_list=[current_turn],
+        turn_index=turn_index,
+    )
 
 
 @pytest.fixture
@@ -129,6 +180,164 @@ class TestWorker:
         monkeypatch.setattr(mock_worker.inference_client, "endpoint", mock_endpoint)
         turn = await mock_worker._process_response(RequestRecord())
         assert turn.texts[0].contents == ["HelloWorld"]
+
+    async def test_create_request_info_dynamo_session_control_default_disabled(
+        self, mock_worker
+    ):
+        """Default config should not add Dynamo request-body extensions."""
+        turn = Turn(role="user", texts=[Text(contents=["hello"])])
+        credit = _make_credit(
+            turn_index=3,
+            cache_bust_marker="[rid:stable]\n\n",
+        )
+        request_info = mock_worker._create_request_info(
+            x_request_id="req-1",
+            credit_context=_make_credit_context(credit),
+            session=_make_session(turn_index=3, turn=turn),
+        )
+
+        assert request_info.turns[-1].extra_body is None
+        assert turn.extra_body is None
+
+    async def test_create_request_info_dynamo_session_control_uses_x_correlation_id(
+        self, mock_worker
+    ):
+        """Dynamo session_control uses the request's X-Correlation-ID."""
+        mock_worker.model_endpoint.endpoint.use_dynamo_conv_aware_routing = True
+        marker = "[rid:stable]\n\n"
+
+        warmup_credit = _make_credit(
+            x_correlation_id="session-xcorr",
+            turn_index=3,
+            phase=CreditPhase.WARMUP,
+            cache_bust_marker=marker,
+        )
+        warmup_request = mock_worker._create_request_info(
+            x_request_id="req-warmup",
+            credit_context=_make_credit_context(warmup_credit),
+            session=_make_session(x_correlation_id="session-xcorr", turn_index=3),
+        )
+        warmup_session_control = warmup_request.turns[-1].extra_body["nvext"][
+            "session_control"
+        ]
+
+        profile_credit = _make_credit(
+            x_correlation_id="session-xcorr",
+            turn_index=4,
+            phase=CreditPhase.PROFILING,
+            cache_bust_marker=marker,
+        )
+        profile_request = mock_worker._create_request_info(
+            x_request_id="req-profile",
+            credit_context=_make_credit_context(profile_credit),
+            session=_make_session(x_correlation_id="session-xcorr", turn_index=4),
+        )
+        profile_session_control = profile_request.turns[-1].extra_body["nvext"][
+            "session_control"
+        ]
+
+        assert warmup_session_control == {
+            "session_id": "session-xcorr",
+            "timeout": 300,
+            "action": "bind",
+        }
+        assert "session-xcorr" in mock_worker._dynamo_bound_session_ids
+        assert profile_session_control == {
+            "session_id": "session-xcorr",
+            "timeout": 300,
+        }
+
+    async def test_create_request_info_dynamo_session_control_ignores_parent_key(
+        self, mock_worker
+    ):
+        """Dynamo session identity follows the child credit, not sticky routing key."""
+        mock_worker.model_endpoint.endpoint.use_dynamo_conv_aware_routing = True
+        credit = _make_credit(
+            x_correlation_id="child-xcorr",
+            parent_correlation_id="parent-xcorr",
+            cache_bust_marker="[rid:child]\n\n",
+        )
+
+        request = mock_worker._create_request_info(
+            x_request_id="req-child",
+            credit_context=_make_credit_context(credit),
+            session=_make_session(x_correlation_id="child-xcorr"),
+        )
+
+        assert request.turns[-1].extra_body["nvext"]["session_control"] == {
+            "session_id": "child-xcorr",
+            "timeout": 300,
+            "action": "bind",
+        }
+
+    async def test_create_request_info_dynamo_session_control_preserves_extra_body(
+        self, mock_worker
+    ):
+        """Dynamo injection should merge with existing per-turn extra_body."""
+        mock_worker.model_endpoint.endpoint.use_dynamo_conv_aware_routing = True
+        mock_worker.model_endpoint.endpoint.dynamo_session_timeout_seconds = 123
+        turn = Turn(
+            role="user",
+            texts=[Text(contents=["hello"])],
+            extra_body={
+                "temperature": 0,
+                "nvext": {
+                    "trace": "keep",
+                    "session_control": {"existing": "keep"},
+                },
+            },
+        )
+        credit = _make_credit(x_correlation_id="xcorr-raw")
+
+        request_info = mock_worker._create_request_info(
+            x_request_id="req-merge",
+            credit_context=_make_credit_context(credit),
+            session=_make_session(x_correlation_id="xcorr-raw", turn=turn),
+        )
+
+        extra_body = request_info.turns[-1].extra_body
+        assert extra_body == {
+            "temperature": 0,
+            "nvext": {
+                "trace": "keep",
+                "session_control": {
+                    "existing": "keep",
+                    "session_id": "xcorr-raw",
+                    "timeout": 123,
+                    "action": "bind",
+                },
+            },
+        }
+        assert turn.extra_body["nvext"]["session_control"] == {"existing": "keep"}
+
+    async def test_create_request_info_dynamo_session_control_patches_raw_payload(
+        self, mock_worker
+    ):
+        """Raw payload replay bypasses extra_body, so patch its payload directly."""
+        mock_worker.model_endpoint.endpoint.use_dynamo_conv_aware_routing = True
+        turn = Turn(
+            role="user",
+            raw_payload={"messages": [{"role": "user", "content": "hi"}]},
+        )
+        credit = _make_credit(x_correlation_id="xcorr-raw")
+
+        request_info = mock_worker._create_request_info(
+            x_request_id="req-raw",
+            credit_context=_make_credit_context(credit),
+            session=_make_session(x_correlation_id="xcorr-raw", turn=turn),
+        )
+
+        assert request_info.turns[-1].raw_payload == {
+            "messages": [{"role": "user", "content": "hi"}],
+            "nvext": {
+                "session_control": {
+                    "session_id": "xcorr-raw",
+                    "timeout": 300,
+                    "action": "bind",
+                }
+            },
+        }
+        assert turn.raw_payload == {"messages": [{"role": "user", "content": "hi"}]}
 
 
 # --- FirstToken Callback Test Helpers ---
