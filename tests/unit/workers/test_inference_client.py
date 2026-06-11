@@ -8,6 +8,7 @@ import pytest
 from pytest import param
 
 from aiperf.common.enums import CreditPhase, ModelSelectionStrategy
+from aiperf.common.environment import Environment
 from aiperf.common.models.dataset_models import Text, Turn
 from aiperf.common.models.model_endpoint_info import (
     EndpointInfo,
@@ -442,3 +443,39 @@ class TestInferenceClient:
             assert not hasattr(ctx, attr), (
                 f"RecordContext must not carry pre-send field {attr!r}"
             )
+
+    def test_enrich_can_strip_payload_bytes_for_large_prompt_runs(
+        self, inference_client, model_endpoint, monkeypatch
+    ):
+        """Opt-in memory mode omits huge request payloads from record messages."""
+        monkeypatch.setattr(Environment.RECORD, "STRIP_PAYLOAD_BYTES", True)
+        inference_client.strip_record_payload_bytes = (
+            Environment.RECORD.STRIP_PAYLOAD_BYTES
+        )
+
+        turn = Turn(texts=[Text(contents=["x"])], role="user", model="test-model")
+        request_info = RequestInfo(
+            model_endpoint=model_endpoint,
+            turns=[turn],
+            turn_index=0,
+            credit_num=7,
+            credit_phase=CreditPhase.PROFILING,
+            x_request_id="rid",
+            x_correlation_id="cid",
+            conversation_id="conv",
+            payload_bytes=b'{"model":"x","messages":[{"role":"user","content":"x"}]}',
+        )
+        record = RequestRecord(
+            request_info=request_info,
+            start_perf_ns=1000,
+            timestamp_ns=1000,
+            end_perf_ns=2000,
+        )
+
+        enriched = inference_client._enrich_request_record(
+            record=record, request_info=request_info
+        )
+
+        assert enriched.request_info is not None
+        assert enriched.request_info.payload_bytes is None
+        assert request_info.payload_bytes is not None

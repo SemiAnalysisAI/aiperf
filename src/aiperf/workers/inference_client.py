@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 import orjson
 
+from aiperf.common.environment import Environment
 from aiperf.common.mixins import AIPerfLifecycleMixin
 from aiperf.common.models import (
     ErrorDetails,
@@ -68,6 +69,7 @@ class InferenceClient(AIPerfLifecycleMixin):
             )
 
         # Create endpoint and transport instances
+        self.strip_record_payload_bytes = Environment.RECORD.STRIP_PAYLOAD_BYTES
         EndpointClass = plugins.get_class(
             PluginType.ENDPOINT, self.model_endpoint.endpoint.type
         )
@@ -221,7 +223,8 @@ class InferenceClient(AIPerfLifecycleMixin):
         hop to the record processor.
 
         The tokeniser and the raw-record exporter both read
-        ``request_info.payload_bytes``; ``osl_mismatch`` reads
+        ``request_info.payload_bytes`` unless
+        ``AIPERF_RECORD_STRIP_PAYLOAD_BYTES`` is enabled; ``osl_mismatch`` reads
         ``max_tokens``; image/audio/video metrics derive their counts from
         the endpoint's single-pass ``extract_payload_inputs`` at
         parse-time. ``turns`` is never populated on the attached context
@@ -238,6 +241,10 @@ class InferenceClient(AIPerfLifecycleMixin):
             else None
         )
 
+        payload_bytes = (
+            None if self.strip_record_payload_bytes else request_info.payload_bytes
+        )
+
         record.request_info = RecordContext(
             credit_num=request_info.credit_num,
             credit_phase=request_info.credit_phase,
@@ -248,7 +255,7 @@ class InferenceClient(AIPerfLifecycleMixin):
             credit_issued_ns=request_info.credit_issued_ns,
             agent_depth=request_info.agent_depth,
             parent_correlation_id=request_info.parent_correlation_id,
-            payload_bytes=request_info.payload_bytes,
+            payload_bytes=payload_bytes,
             max_tokens=max_tokens,
             audio_duration_seconds=audio_duration_seconds,
             cache_bust_marker=request_info.cache_bust_marker,
