@@ -630,6 +630,15 @@ class _RecordSettings(BaseSettings):
         default=300.0,
         description="Timeout in seconds for processing record results",
     )
+    STRIP_PAYLOAD_BYTES: bool = Field(
+        default=False,
+        description="When True, workers omit canonical request payload bytes from "
+        "RecordContext after the request has been sent. This substantially reduces "
+        "record-pipeline memory for very large prompts, but disables client-side "
+        "input tokenization, media counting from request bodies, and raw request "
+        "payload export. Intended for text-only runs that use server-reported "
+        "token counts.",
+    )
 
 
 class _ServerMetricsSettings(BaseSettings):

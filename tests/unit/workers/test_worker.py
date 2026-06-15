@@ -321,18 +321,17 @@ class TestProcessCreditFastPathRouting:
     """Worker's payload-bytes fast path routing.
 
     The fast path (read ``payload_bytes`` directly from the dataset
-    client, bypass session/conversation deserialisation) is gated on
-    two conditions:
-    1. ``self._is_payload_bytes`` is True (mmap format is PAYLOAD_BYTES)
-    2. ``credit_context.credit.agent_depth == 0`` (not a DAG descendant)
-
-    DAG descendants (``agent_depth > 0``) must go through the session
-    path even under PAYLOAD_BYTES mmap so FORK children can seed their
-    ``UserSession.turn_list`` from the parent session's local state.
+    client, bypass session/conversation deserialisation) is gated on the
+    mmap format. PAYLOAD_BYTES entries are already full wire payloads, so
+    DAG descendants do not need the session path to accumulate context.
     """
 
     def _make_credit_context(
-        self, agent_depth: int, conversation_id: str = "conv-xyz"
+        self,
+        agent_depth: int,
+        conversation_id: str = "conv-xyz",
+        turn_index: int = 0,
+        num_turns: int = 1,
     ) -> CreditContext:
         return CreditContext(
             credit=Credit(
@@ -340,8 +339,8 @@ class TestProcessCreditFastPathRouting:
                 phase=CreditPhase.PROFILING,
                 conversation_id=conversation_id,
                 x_correlation_id="xcorr",
-                turn_index=0,
-                num_turns=1,
+                turn_index=turn_index,
+                num_turns=num_turns,
                 issued_at_ns=0,
                 agent_depth=agent_depth,
             ),
@@ -370,12 +369,20 @@ class TestProcessCreditFastPathRouting:
         execute.assert_called_once()
         session_path.assert_not_called()
 
-    async def test_child_credit_forced_to_session_path(self, monkeypatch, mock_worker):
-        """agent_depth > 0 must bypass the fast path even when
-        PAYLOAD_BYTES mmap is active. FORK children need the parent's
-        session-local turn_list, which is inaccessible from the fast path.
+    async def test_child_credit_uses_fast_path_when_payload_bytes_mode(
+        self, monkeypatch, mock_worker
+    ):
+        """agent_depth > 0 still uses only the current pre-encoded payload.
+
+        PAYLOAD_BYTES is a verbatim replay format: each turn's bytes already
+        contain the complete request body. Forcing DAG children through the
+        session path reconstructs every turn in the child conversation and
+        retains duplicated full-history payloads in worker memory.
         """
         mock_client = AsyncMock()
+        mock_client.get_payload_bytes = AsyncMock(
+            return_value=b'{"model":"x","messages":[{"role":"user","content":"t2"}]}'
+        )
         mock_worker._dataset_client = mock_client
         mock_worker._is_payload_bytes = True
 
@@ -384,12 +391,18 @@ class TestProcessCreditFastPathRouting:
         monkeypatch.setattr(mock_worker, "_execute_request", execute)
         monkeypatch.setattr(mock_worker, "_process_credit_with_session", session_path)
 
-        await mock_worker._process_credit(self._make_credit_context(agent_depth=1))
+        await mock_worker._process_credit(
+            self._make_credit_context(
+                agent_depth=1,
+                conversation_id="child-conv",
+                turn_index=2,
+                num_turns=10,
+            )
+        )
 
-        # Fast path never consulted the dataset client for bytes.
-        mock_client.get_payload_bytes.assert_not_called()
-        execute.assert_not_called()
-        session_path.assert_called_once()
+        mock_client.get_payload_bytes.assert_called_once_with("child-conv", 2)
+        execute.assert_called_once()
+        session_path.assert_not_called()
 
     async def test_non_payload_bytes_mode_always_session_path(
         self, monkeypatch, mock_worker

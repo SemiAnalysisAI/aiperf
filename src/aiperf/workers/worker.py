@@ -851,15 +851,10 @@ class Worker(BaseComponentService, ProcessHealthMixin):
 
         try:
             # Payload bytes fast path: bypass session/conversation deserialization.
-            # Skipped for DAG descendants (agent_depth > 0) so their turn_list
-            # goes through session_manager — FORK children need parent-seeded
-            # accumulation and all multi-turn children need session state.
-            context_mode_requires_session = credit_context.credit.agent_depth > 0
-            if (
-                self._is_payload_bytes
-                and self._dataset_client is not None
-                and not context_mode_requires_session
-            ):
+            # PAYLOAD_BYTES entries are already full wire payloads for verbatim
+            # replay, including DAG children/subagents, so no accumulated
+            # turn_list is needed to construct the current request.
+            if self._is_payload_bytes and self._dataset_client is not None:
                 conversation_id = credit_context.credit.conversation_id
                 turn_index = credit_context.credit.turn_index
                 payload_bytes = await self._dataset_client.get_payload_bytes(
