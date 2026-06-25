@@ -249,6 +249,7 @@ async def test_cache_warmup_starts_after_baseline_and_removes_idle_delay():
     assert pressure.turn_index == 2
     assert pressure.max_tokens_override == 1
     assert pressure.is_session_start is False
+    issuer.set_max_tokens_override.assert_called_once_with(1)
     scheduler.schedule_later.assert_called_once()
     assert scheduler.schedule_later.call_args.args[0] == 600.0
 

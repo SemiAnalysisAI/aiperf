@@ -522,6 +522,7 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
             return
         assert self._cache_warmup_duration is not None
         self._accelerated_warmup_started = True
+        self.credit_issuer.set_max_tokens_override(_WARMUP_MAX_TOKENS)
         self.info(
             "WARMUP cache pressure: replaying live trajectories for "
             f"{self._cache_warmup_duration:.1f}s with zero idle delay and "
