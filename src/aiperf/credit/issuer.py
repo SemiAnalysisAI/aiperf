@@ -70,6 +70,7 @@ class CreditIssuer:
         lifecycle: PhaseLifecycle,
         url_selection_strategy: URLSelectionStrategyProtocol | None = None,
         session_tree_registry: SessionTreeRegistry | None = None,
+        session_tree_registry_enabled: bool | None = None,
     ) -> None:
         """Initialize credit issuer.
 
@@ -97,12 +98,25 @@ class CreditIssuer:
         self._cancellation_policy = cancellation_policy
         self._lifecycle = lifecycle
         self._url_selection_strategy = url_selection_strategy
-        # Tree accounting is scoped to PROFILING: WARMUP keeps the legacy
-        # in-flight teardown release (warmup credits prime turn k_i and never
-        # reach a final turn, so they spawn no descendants and need no tree).
         self._session_tree_registry = (
-            session_tree_registry if phase == CreditPhase.PROFILING else None
+            session_tree_registry
+            if (
+                session_tree_registry_enabled
+                if session_tree_registry_enabled is not None
+                else phase == CreditPhase.PROFILING
+            )
+            else None
         )
+        self._issuing_stopped = False
+
+    def stop_issuing(self) -> None:
+        """Refuse every subsequent root and child credit."""
+        self._issuing_stopped = True
+
+    def mark_sending_complete(self) -> None:
+        """Wake the phase runner after strategy-controlled issuance ends."""
+        self.stop_issuing()
+        self._progress.all_credits_sent_event.set()
 
     def can_acquire_and_start_new_session(self) -> bool:
         """Check if a session slot can be acquired and a new session can be started."""
@@ -203,6 +217,9 @@ class CreditIssuer:
             5. Create and send Credit
             6. If final credit: freeze counts + set event
         """
+        if self._issuing_stopped:
+            return False
+
         # A session start is turn 0 OR an agentic mid-trace resume (flagged via
         # is_session_start, only emitted at a phase's initial dispatch).
         is_session_start = turn.turn_index == 0 or turn.is_session_start
@@ -390,6 +407,8 @@ class CreditIssuer:
         attempt would send the first sibling and permanently truncate every
         other sibling spawned in the same gather.
         """
+        if self._issuing_stopped:
+            return False
         can_proceed_fn = self._stop_checker.can_send_child_turn
         if not can_proceed_fn():
             return False
