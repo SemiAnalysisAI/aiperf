@@ -290,6 +290,9 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         already released by the registry, so the recycled root's acquire keeps
         occupancy at exactly the configured concurrency.
         """
+        self.credit_issuer.replay_gate.close_root(root_corr)
+        if self.branch_orchestrator is not None:
+            self.branch_orchestrator.close_replay_root(root_corr)
         lane = self._correlation_to_lane.pop(root_corr, None)
         self._session_marker.pop(root_corr, None)
         if lane is None:
@@ -318,6 +321,7 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         if self._has_tree_registry:
             self._session_tree_registry.set_drain_callback(self._on_tree_drained)
         if self.config.phase == CreditPhase.PROFILING:
+            self.credit_issuer.replay_gate.activate()
             if not self.conversation_source.trajectories:
                 raise RuntimeError(
                     "AgenticReplayStrategy PROFILING setup: trajectories empty. "
@@ -522,6 +526,7 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
             return
         assert self._cache_warmup_duration is not None
         self._accelerated_warmup_started = True
+        self.credit_issuer.replay_gate.activate()
         self.info(
             "WARMUP cache pressure: replaying live trajectories for "
             f"{self._cache_warmup_duration:.1f}s with zero idle delay and "
@@ -613,6 +618,7 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
 
     def observe_credit_return(self, credit: Credit) -> None:
         """Track the next live turn for the warmup-to-profile handoff."""
+        self.credit_issuer.replay_gate.complete(credit)
         if not self._accelerated_warmup_started:
             return
         root_correlation_id = credit.effective_root_correlation_id
