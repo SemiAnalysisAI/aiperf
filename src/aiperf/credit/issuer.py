@@ -112,6 +112,11 @@ class CreditIssuer:
         )
         self._issuing_stopped = False
         self.replay_gate = ReplayIssueGate(replay_barrier)
+        self._max_tokens_override: int | None = None
+
+    def set_max_tokens_override(self, max_tokens: int | None) -> None:
+        """Override generation length for every subsequently issued credit."""
+        self._max_tokens_override = max_tokens
 
     def stop_issuing(self) -> None:
         """Refuse every subsequent root and child credit."""
@@ -331,11 +336,9 @@ class CreditIssuer:
         return await self._issue_credit_internal(turn)
 
     async def _issue_credit_internal(self, turn: TurnToSend) -> bool:
-        """Issue credit after slots are acquired. Mark as final if this was the final credit.
-
-        Returns:
-            True if more credits can be sent, False if this was the final credit.
-        """
+        """Issue credit after slots are acquired and mark the final credit."""
+        if self._max_tokens_override is not None:
+            turn = _struct_replace(turn, max_tokens_override=self._max_tokens_override)
         credit_index, is_final_credit = self._progress.increment_sent(turn)
 
         cancel_after_ns = self._cancellation_policy.next_cancellation_delay_ns(

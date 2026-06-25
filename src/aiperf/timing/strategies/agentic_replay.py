@@ -575,6 +575,7 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         for trajectory in self.conversation_source.trajectories:
             self._seed_trajectory_replay_prefix(trajectory)
         self.credit_issuer.replay_gate.activate()
+        self.credit_issuer.set_max_tokens_override(_WARMUP_MAX_TOKENS)
         self.info(
             "WARMUP cache pressure: replaying live trajectories for "
             f"{self._cache_warmup_duration:.1f}s with zero idle delay and "
