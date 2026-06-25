@@ -27,6 +27,14 @@ class ReplayTurnKey:
     turn_index: int
 
 
+@dataclass(frozen=True, slots=True, order=True)
+class ReplayResumeBoundary:
+    """Completed prefix of one replay stream at a phase boundary."""
+
+    conversation_id: str
+    next_turn_index: int
+
+
 @dataclass(frozen=True, slots=True)
 class RecordedTurnInterval:
     """One request interval on a logical replay stream."""
@@ -124,7 +132,6 @@ class _PendingDispatch:
 class _RootBarrierState:
     completed: set[ReplayTurnKey]
     pending: dict[ReplayTurnKey, _PendingDispatch]
-    initialized: bool = False
 
 
 class ReplayBarrierCoordinator:
@@ -132,19 +139,12 @@ class ReplayBarrierCoordinator:
 
     def __init__(self, dataset_metadata: DatasetMetadata) -> None:
         self._predecessors: dict[ReplayTurnKey, tuple[ReplayTurnKey, ...]] = {}
-        self._timestamps: dict[ReplayTurnKey, float | None] = {}
         for conversation in dataset_metadata.conversations:
             for turn_index, turn in enumerate(conversation.turns):
                 key = ReplayTurnKey(conversation.conversation_id, turn_index)
                 self._predecessors[key] = tuple(
                     ReplayTurnKey(ref.conversation_id, ref.turn_index)
                     for ref in turn.replay_predecessors
-                )
-                timestamp = turn.timestamp_ms
-                self._timestamps[key] = (
-                    float(timestamp)
-                    if isinstance(timestamp, int | float) and math.isfinite(timestamp)
-                    else None
                 )
         self._roots: dict[str, _RootBarrierState] = {}
         self._dispatch_tasks: set[asyncio.Task] = set()
@@ -183,10 +183,6 @@ class ReplayBarrierCoordinator:
             root_id, _RootBarrierState(completed=set(), pending={})
         )
         key = ReplayTurnKey(turn.conversation_id, turn.turn_index)
-        if not state.initialized:
-            if turn.turn_index > 0:
-                self._seed_resumed_prefix(state, key)
-            state.initialized = True
         if self._ready(state, key):
             return await issue()
         if key in state.pending:
@@ -202,7 +198,7 @@ class ReplayBarrierCoordinator:
             return
         root_id = credit.effective_root_correlation_id
         state = self._roots.setdefault(
-            root_id, _RootBarrierState(completed=set(), pending={}, initialized=True)
+            root_id, _RootBarrierState(completed=set(), pending={})
         )
         state.completed.add(ReplayTurnKey(credit.conversation_id, credit.turn_index))
         ready = [key for key in state.pending if self._ready(state, key)]
@@ -215,6 +211,56 @@ class ReplayBarrierCoordinator:
     def close_root(self, root_id: str) -> None:
         """Discard completed runtime state when a recycled tree drains."""
         self._roots.pop(root_id, None)
+
+    def seed_completed_prefixes(
+        self,
+        root_id: str,
+        boundaries: tuple[ReplayResumeBoundary, ...],
+    ) -> None:
+        """Seed exact pre-resume history before any turn can be submitted."""
+        state = self._roots.setdefault(
+            root_id, _RootBarrierState(completed=set(), pending={})
+        )
+        if state.pending:
+            raise RuntimeError(
+                f"Cannot seed replay history after dispatch for root={root_id!r}"
+            )
+        for boundary in boundaries:
+            if boundary.next_turn_index < 0:
+                raise ValueError(
+                    "Replay resume boundary must have a non-negative turn index"
+                )
+            state.completed.update(
+                ReplayTurnKey(boundary.conversation_id, turn_index)
+                for turn_index in range(boundary.next_turn_index)
+            )
+
+    def completed_prefixes(self, root_id: str) -> tuple[ReplayResumeBoundary, ...]:
+        """Return the contiguous completed prefix of every replay stream."""
+        state = self._roots.get(root_id)
+        if state is None:
+            return ()
+        next_turn_by_conversation: dict[str, int] = {}
+        for key in state.completed:
+            next_turn_by_conversation[key.conversation_id] = max(
+                next_turn_by_conversation.get(key.conversation_id, 0),
+                key.turn_index + 1,
+            )
+        for conversation_id, next_turn_index in next_turn_by_conversation.items():
+            if any(
+                ReplayTurnKey(conversation_id, turn_index) not in state.completed
+                for turn_index in range(next_turn_index)
+            ):
+                raise RuntimeError(
+                    "Replay completion history is not a contiguous stream prefix: "
+                    f"root={root_id!r}, conversation={conversation_id!r}"
+                )
+        return tuple(
+            ReplayResumeBoundary(conversation_id, next_turn_index)
+            for conversation_id, next_turn_index in sorted(
+                next_turn_by_conversation.items()
+            )
+        )
 
     async def cancel_pending(self, *, notify_refused: bool) -> None:
         """Cancel retained dispatches during phase teardown."""
@@ -232,16 +278,6 @@ class ReplayBarrierCoordinator:
         self._dispatch_tasks.clear()
         for callback in callbacks:
             await callback()
-
-    def _seed_resumed_prefix(
-        self, state: _RootBarrierState, first_key: ReplayTurnKey
-    ) -> None:
-        first_timestamp = self._timestamps.get(first_key)
-        if first_timestamp is None:
-            return
-        for key, timestamp in self._timestamps.items():
-            if timestamp is not None and timestamp < first_timestamp:
-                state.completed.add(key)
 
     def _ready(self, state: _RootBarrierState, key: ReplayTurnKey) -> bool:
         return all(
@@ -302,6 +338,21 @@ class ReplayIssueGate:
     def close_root(self, root_correlation_id: str) -> None:
         if self._coordinator is not None:
             self._coordinator.close_root(root_correlation_id)
+
+    def seed_completed_prefixes(
+        self,
+        root_correlation_id: str,
+        boundaries: tuple[ReplayResumeBoundary, ...],
+    ) -> None:
+        if self._coordinator is not None:
+            self._coordinator.seed_completed_prefixes(root_correlation_id, boundaries)
+
+    def completed_prefixes(
+        self, root_correlation_id: str
+    ) -> tuple[ReplayResumeBoundary, ...]:
+        if self._coordinator is None:
+            return ()
+        return self._coordinator.completed_prefixes(root_correlation_id)
 
     async def cancel(self, *, notify_refused: bool) -> None:
         if self._coordinator is not None:

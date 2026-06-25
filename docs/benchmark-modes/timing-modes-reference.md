@@ -258,7 +258,10 @@ sequential requests on another stream without launching all of them at once.
 Branches that began while their spawning request was in flight are scheduled
 from that request's send time; independent subagent scopes are not globally
 joined. The same barriers remain active during accelerated cache-pressure
-warmup, where idle delays are otherwise removed.
+warmup, where idle delays are otherwise removed. When replay resumes at a
+sampled `t*` or crosses from accelerated warmup into profiling, the snapshot
+seeds each stream's exact completed prefix before any request can dispatch;
+request arrival order therefore cannot weaken or deadlock a join barrier.
 
 Concurrency is **per session tree**: each `--concurrency` lane holds one slot for a whole tree — the root conversation plus every subagent it spawns (children, subchildren, background `::fa:`/`::aux:` sidecars). A lane's slot is released, and the lane recycled into a fresh root, only once the entire tree drains (root terminal **and** all descendants returned) — so a background subagent that outlives its root does not free the lane early. Recycle then draws the next root from the dataset sampler (honoring the dataset's `sampling_strategy` — sequential / shuffle / random), starting it from turn 0. This keeps exactly `--concurrency` trees live at all times. The shared tree id (`root_correlation_id`) is persisted per record in `profile_export.jsonl`, so `aiperf analyze swim-lane` groups each tree under one lane and renders exactly `--concurrency` slots.
 
