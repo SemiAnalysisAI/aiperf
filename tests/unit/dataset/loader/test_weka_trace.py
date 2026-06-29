@@ -1083,9 +1083,9 @@ def test_trace_idle_gap_cap_is_per_trace_and_uses_request_starts(tmp_path):
     trace_a_turns = conv_by_id["trace_idle_a"].turns
     assert trace_a_turns[0].timestamp == 0.0
     assert trace_a_turns[1].timestamp == 80_000.0
-    # The trace-wide idle-gap cap takes precedence over the old per-turn cap,
-    # so this stays 80s rather than being independently clamped to 60s.
-    assert trace_a_turns[1].delay == 80_000.0
+    # The trace-wide idle-gap cap first shifts the parent start to 80s; the
+    # per-turn cap then independently caps that derived per-stream delay.
+    assert trace_a_turns[1].delay == 60_000.0
     assert conv_by_id["trace_idle_a::sa:agent_idle"].turns[0].timestamp == 20_000.0
 
     # Trace B is compressed against its own request starts only: 150 -> 220

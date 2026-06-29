@@ -435,10 +435,11 @@ class LoadGeneratorConfig(BaseConfig):
             "submission timestamps within one root trace, compresses long gaps between "
             "consecutive request submissions, and derives turn delays from the "
             "compressed per-trace timeline. Original request api_time values are not "
-            "used to decide these idle gaps. When set for Weka, this takes precedence over "
-            "`--inter-turn-delay-cap-seconds` so individual parent/subagent-line "
-            "delays are not separately capped. Defaults to None (no per-trace "
-            "idle-gap compression).",
+            "used to decide these idle gaps. When both this and "
+            "`--inter-turn-delay-cap-seconds` are set for Weka, the per-trace "
+            "timeline compression runs first and the derived parent/subagent-line "
+            "delays are then capped by `--inter-turn-delay-cap-seconds`. Defaults "
+            "to None (no per-trace idle-gap compression).",
         ),
         CLIParameter(
             name=("--trace-idle-gap-cap-seconds",),
