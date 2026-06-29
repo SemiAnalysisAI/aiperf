@@ -281,7 +281,7 @@ def test_random_seed_unset_auto_injected_and_logged(
 
 def test_inter_turn_delay_cap_explicit_other_value_does_not_raise() -> None:
     """AgentX MVP no longer locks --inter-turn-delay-cap-seconds;
-    Weka may apply it after trace_idle_gap_cap_seconds rewrites the timeline."""
+    trace_idle_gap_cap_seconds supersedes the per-turn cap in the weka loader."""
     cfg = _user_config(
         inter_turn_delay_cap_seconds=30.0, extra_inputs={"ignore_eos": True}
     )

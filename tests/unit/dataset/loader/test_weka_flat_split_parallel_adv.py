@@ -303,10 +303,8 @@ def test_convert_fanout_idle_gap_warp_parallel_byte_identical(tmp_path, monkeypa
 
     Three compressible gaps, one INSIDE the worker chain (2.5 -> 8.5 across
     chains, 9 -> 200 on main, 200 -> 210 reaching a worker-chain request whose
-    api_time is unrecorded/None). The trace-wide idle-gap cap rewrites the
-    aggregate timeline first; the per-turn cap then clamps derived stream-local
-    delays. Warped timestamps and capped per-chain delays must be byte-identical
-    across paths.
+    api_time is unrecorded/None). Warped timestamps and per-chain delays must
+    be byte-identical across paths.
     """
     reqs = _fanout_requests()
     reqs[5]["t"] = 200.0  # main turn 3 after a 191s idle gap
@@ -319,19 +317,18 @@ def test_convert_fanout_idle_gap_warp_parallel_byte_identical(tmp_path, monkeypa
         monkeypatch,
         [_trace("trace_warp", reqs)],
         idle_gap_cap_seconds=5.0,
-        inter_turn_delay_cap_seconds=6.0,
     )
 
     convs = _by_sid(serial)
     root = convs["trace_warp"]
     # Gaps: [2.5, 8.5] excess 1, [9, 200] excess 186, [200, 210] excess 5.
     assert [t.timestamp for t in root.turns] == pytest.approx([0.0, 8000.0, 13000.0])
-    assert root.turns[1].delay == pytest.approx(6000.0)
+    assert root.turns[1].delay == pytest.approx(8000.0)
     assert root.turns[2].delay == pytest.approx(5000.0)
     w0 = convs["trace_warp::fa:000"]
     assert [t.timestamp for t in w0.turns] == pytest.approx([2000.0, 7500.0, 18000.0])
     assert w0.turns[1].delay == pytest.approx(5500.0)
-    assert w0.turns[2].delay == pytest.approx(6000.0)
+    assert w0.turns[2].delay == pytest.approx(10500.0)
 
 
 def test_convert_nonmonotonic_parent_delay_floored_parallel_byte_identical(

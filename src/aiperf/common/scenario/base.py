@@ -108,9 +108,8 @@ class ScenarioSpec(AIPerfBaseModel):
         description=(
             "Hard ceiling (seconds) for idle gaps within each root trace. For "
             "Weka, parent + subagent request-start timestamps are compressed "
-            "per-trace before per-turn delays are derived. Supersedes "
-            "use_think_time_only for Weka timestamp derivation; derived delays "
-            "may still be capped by inter_turn_delay_cap_seconds."
+            "per-trace before per-turn delays are derived. Takes precedence over "
+            "inter_turn_delay_cap_seconds and supersedes use_think_time_only."
         ),
     )
     require_cache_bust: CacheBustTarget | None = Field(

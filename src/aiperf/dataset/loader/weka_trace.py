@@ -1586,17 +1586,13 @@ class WekaTraceLoader(HashIdsPromptSynthesisMixin, BaseFileLoader):
         ignore_delays = self.user_config.input.ignore_trace_delays
         think_time_only = self.user_config.input.use_think_time_only
         cap_seconds = self.user_config.loadgen.inter_turn_delay_cap_seconds
+        trace_idle_gap_cap_seconds = self._trace_idle_gap_cap_seconds()
         trace_idle_timing_by_trace = self._build_trace_idle_timing_by_trace(
             parent_plans, child_plans, flat_plans
         )
-        # The caps model different things and may be intentionally combined:
-        # trace_idle_gap_cap_seconds compresses aggregate request-start idle
-        # within each root trace first; inter_turn_delay_cap_seconds then caps
-        # the derived per-stream parent/subagent delays. Historically the trace
-        # warp disabled the turn cap to avoid accidental double-capping, but
-        # AgentX needs both knobs to independently bound engine-idle gaps and
-        # per-conversation dormancy.
-        turn_cap_seconds = cap_seconds
+        turn_cap_seconds = (
+            None if trace_idle_gap_cap_seconds is not None else cap_seconds
+        )
         self._delay_cap_tracker.cap_seconds = turn_cap_seconds
 
         _t0 = _time.monotonic()
@@ -2278,8 +2274,7 @@ class WekaTraceLoader(HashIdsPromptSynthesisMixin, BaseFileLoader):
 
         Same precedence as the subagent-child loop: warped per-trace timing
         when the idle-gap cap is active, else raw per-chain deltas honoring
-        ``--use-think-time-only``. The derived delay is then independently
-        capped by ``--inter-turn-delay-cap-seconds`` when that cap is set.
+        ``--use-think-time-only`` and the inter-turn delay cap.
         """
         if trace_idle_timing is not None:
             timing = trace_idle_timing.child_by_session_request[(fp.session_id, k)]
