@@ -259,11 +259,26 @@ async def test_cache_warmup_starts_after_baseline_and_removes_idle_delay():
 
 @pytest.mark.asyncio
 async def test_cache_warmup_cutoff_stops_issuer_and_persists_next_turn():
+    dataset = DatasetMetadata(
+        conversations=[
+            ConversationMetadata(
+                conversation_id="trace_0",
+                turns=[
+                    TurnMetadata(),
+                    TurnMetadata(),
+                    TurnMetadata(),
+                    TurnMetadata(delay_ms=2_500.0),
+                ],
+            )
+        ],
+        sampling_strategy=DatasetSamplingStrategy.SEQUENTIAL,
+    )
     trajectory = Trajectory(conversation_id="trace_0", start_turn_index=1)
     strategy, issuer, _, source = _make_strategy(
         phase=CreditPhase.WARMUP,
         trajectories=[trajectory],
         cache_warmup_duration=10.0,
+        dataset=dataset,
     )
     issuer.mark_sending_complete = MagicMock()
 
@@ -295,6 +310,7 @@ async def test_cache_warmup_cutoff_stops_issuer_and_persists_next_turn():
     assert snapshot is not None
     assert len(snapshot.states) == 1
     assert snapshot.states[0].next_turn_index == 3
+    assert snapshot.states[0].next_dispatch_offset_ms == pytest.approx(2_500.0)
     assert snapshot.states[0].x_correlation_id == baseline.x_correlation_id
     assert snapshot.replay_resume_boundaries == (ReplayResumeBoundary("trace_0", 3),)
 

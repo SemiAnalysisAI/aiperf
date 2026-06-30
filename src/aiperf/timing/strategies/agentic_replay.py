@@ -756,6 +756,13 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
             lane = self._root_to_lane.get(credit.effective_root_correlation_id)
             if lane is None or credit.turn_index + 1 >= credit.num_turns:
                 continue
+            next_meta = self.conversation_source.get_next_turn_metadata(credit)
+            next_delay_ms = (
+                float(next_meta.delay_ms)
+                if isinstance(next_meta.delay_ms, int | float)
+                and next_meta.delay_ms > 0
+                else 0.0
+            )
             branch_id, join_target = child_annotations.get(
                 credit.x_correlation_id, (None, None)
             )
@@ -767,6 +774,7 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
                     agent_depth=credit.agent_depth,
                     parent_correlation_id=credit.parent_correlation_id,
                     root_correlation_id=credit.root_correlation_id,
+                    next_dispatch_offset_ms=next_delay_ms,
                     waiting_on_children=credit.x_correlation_id in blocked,
                     join_target_turn_index=(
                         blocked.get(credit.x_correlation_id, join_target)
