@@ -222,6 +222,20 @@ async def test_resumed_prefix_is_exact_and_submission_order_independent(
     )
 
 
+def test_completed_prefixes_trim_gapped_runtime_history() -> None:
+    coordinator = ReplayBarrierCoordinator(_metadata())
+    coordinator.activate()
+
+    coordinator.complete(_credit("d", turn_index=1, num_turns=3))
+
+    assert coordinator.completed_prefixes("root") == ()
+
+    coordinator.complete(_credit("d", turn_index=0, num_turns=3))
+    coordinator.complete(_credit("d", turn_index=3, num_turns=4))
+
+    assert coordinator.completed_prefixes("root") == (ReplayResumeBoundary("d", 2),)
+
+
 async def _record_issue(issued: list[str], name: str) -> bool:
     issued.append(name)
     return True

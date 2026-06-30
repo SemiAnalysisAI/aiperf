@@ -240,21 +240,29 @@ class ReplayBarrierCoordinator:
         state = self._roots.get(root_id)
         if state is None:
             return ()
-        next_turn_by_conversation: dict[str, int] = {}
+        turns_by_conversation: dict[str, set[int]] = {}
         for key in state.completed:
-            next_turn_by_conversation[key.conversation_id] = max(
-                next_turn_by_conversation.get(key.conversation_id, 0),
-                key.turn_index + 1,
+            turns_by_conversation.setdefault(key.conversation_id, set()).add(
+                key.turn_index
             )
-        for conversation_id, next_turn_index in next_turn_by_conversation.items():
-            if any(
-                ReplayTurnKey(conversation_id, turn_index) not in state.completed
-                for turn_index in range(next_turn_index)
-            ):
-                raise RuntimeError(
-                    "Replay completion history is not a contiguous stream prefix: "
-                    f"root={root_id!r}, conversation={conversation_id!r}"
+
+        next_turn_by_conversation: dict[str, int] = {}
+        for conversation_id, turn_indexes in turns_by_conversation.items():
+            next_turn_index = 0
+            while next_turn_index in turn_indexes:
+                next_turn_index += 1
+            if next_turn_index <= max(turn_indexes):
+                _logger.warning(
+                    "Replay completion history for root=%r, conversation=%r "
+                    "is missing turn %d; trimming handoff seed from %d to %d",
+                    root_id,
+                    conversation_id,
+                    next_turn_index,
+                    max(turn_indexes) + 1,
+                    next_turn_index,
                 )
+            if next_turn_index > 0:
+                next_turn_by_conversation[conversation_id] = next_turn_index
         return tuple(
             ReplayResumeBoundary(conversation_id, next_turn_index)
             for conversation_id, next_turn_index in sorted(
