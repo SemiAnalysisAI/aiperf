@@ -299,6 +299,119 @@ async def test_cache_warmup_cutoff_stops_issuer_and_persists_next_turn():
     assert snapshot.replay_resume_boundaries == (ReplayResumeBoundary("trace_0", 3),)
 
 
+def test_cache_warmup_handoff_preserves_residual_next_turn_delay() -> None:
+    dataset = DatasetMetadata(
+        conversations=[
+            ConversationMetadata(
+                conversation_id="trace_0",
+                turns=[
+                    TurnMetadata(delay_ms=0.0),
+                    TurnMetadata(delay_ms=0.0),
+                    TurnMetadata(delay_ms=8_000.0),
+                ],
+            )
+        ],
+        sampling_strategy=DatasetSamplingStrategy.SEQUENTIAL,
+    )
+    strategy, _, _, _ = _make_strategy(
+        phase=CreditPhase.WARMUP,
+        trajectories=[Trajectory(conversation_id="trace_0", start_turn_index=0)],
+        dataset=dataset,
+        cache_warmup_duration=10.0,
+    )
+    credit = _make_credit(
+        conversation_id="trace_0",
+        x_correlation_id="root",
+        turn_index=1,
+        num_turns=3,
+        phase=CreditPhase.WARMUP,
+    )
+    strategy._handoff_credits[credit.x_correlation_id] = credit
+    strategy._handoff_returned_at_ns[credit.x_correlation_id] = 1_000_000_000
+    strategy._root_to_lane[credit.effective_root_correlation_id] = 0
+
+    states_by_lane = strategy._build_handoff_states(finalized_at_ns=3_500_000_000)
+
+    state = states_by_lane[0][0]
+    assert state.next_turn_index == 2
+    assert state.next_dispatch_offset_ms == pytest.approx(5_500.0)
+
+
+def test_cache_warmup_handoff_uses_timestamp_fallback_and_idle_cap() -> None:
+    dataset = DatasetMetadata(
+        conversations=[
+            ConversationMetadata(
+                conversation_id="trace_0",
+                turns=[
+                    TurnMetadata(timestamp_ms=0.0),
+                    TurnMetadata(timestamp_ms=1_000.0, api_time_ms=500.0),
+                    TurnMetadata(timestamp_ms=6_000.0),
+                ],
+            )
+        ],
+        sampling_strategy=DatasetSamplingStrategy.SEQUENTIAL,
+    )
+    strategy, _, _, _ = _make_strategy(
+        phase=CreditPhase.WARMUP,
+        trajectories=[Trajectory(conversation_id="trace_0", start_turn_index=0)],
+        dataset=dataset,
+        cache_warmup_duration=10.0,
+    )
+    strategy._phase_offset_cap_ms = 3_000.0
+    credit = _make_credit(
+        conversation_id="trace_0",
+        x_correlation_id="root",
+        turn_index=1,
+        num_turns=3,
+        phase=CreditPhase.WARMUP,
+    )
+    strategy._handoff_credits[credit.x_correlation_id] = credit
+    strategy._handoff_returned_at_ns[credit.x_correlation_id] = 1_000_000_000
+    strategy._root_to_lane[credit.effective_root_correlation_id] = 0
+
+    states_by_lane = strategy._build_handoff_states(finalized_at_ns=1_250_000_000)
+
+    # Timestamp fallback gives 6000 - (1000 + 500) = 4500ms, less the 250ms
+    # handoff drain wait = 4250ms, then capped to the scenario idle cap.
+    assert states_by_lane[0][0].next_dispatch_offset_ms == pytest.approx(3_000.0)
+
+
+def test_cache_warmup_handoff_elapsed_wait_can_exhaust_delay() -> None:
+    dataset = DatasetMetadata(
+        conversations=[
+            ConversationMetadata(
+                conversation_id="trace_0",
+                turns=[
+                    TurnMetadata(delay_ms=0.0),
+                    TurnMetadata(delay_ms=0.0),
+                    TurnMetadata(delay_ms=2_000.0),
+                ],
+            )
+        ],
+        sampling_strategy=DatasetSamplingStrategy.SEQUENTIAL,
+    )
+    strategy, _, _, _ = _make_strategy(
+        phase=CreditPhase.WARMUP,
+        trajectories=[Trajectory(conversation_id="trace_0", start_turn_index=0)],
+        dataset=dataset,
+        cache_warmup_duration=10.0,
+    )
+    credit = _make_credit(
+        conversation_id="trace_0",
+        x_correlation_id="root",
+        turn_index=1,
+        num_turns=3,
+        phase=CreditPhase.WARMUP,
+    )
+    strategy._handoff_credits[credit.x_correlation_id] = credit
+    strategy._handoff_returned_at_ns[credit.x_correlation_id] = 1_000_000_000
+    strategy._root_to_lane[credit.effective_root_correlation_id] = 0
+
+    states_by_lane = strategy._build_handoff_states(finalized_at_ns=4_000_000_000)
+
+    assert states_by_lane[0][0].next_dispatch_offset_ms == pytest.approx(0.0)
+
+
 def test_handoff_preserves_completed_streams_absent_from_live_state() -> None:
     strategy, issuer, _, _ = _make_strategy(
         phase=CreditPhase.WARMUP,
