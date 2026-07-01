@@ -150,6 +150,7 @@ class ReplayBarrierCoordinator:
         self._roots: dict[str, _RootBarrierState] = {}
         self._dispatch_tasks: set[asyncio.Task] = set()
         self._active = False
+        self._releases_paused = False
 
     def activate(self) -> None:
         """Enable barriers after baseline cache priming completes."""
@@ -169,6 +170,10 @@ class ReplayBarrierCoordinator:
             dict(sorted(widths.items())),
         )
 
+    def pause_releases(self) -> None:
+        """Retain newly ready dispatches for an explicit phase handoff."""
+        self._releases_paused = True
+
     async def submit(
         self,
         turn: TurnToSend,
@@ -184,7 +189,7 @@ class ReplayBarrierCoordinator:
             root_id, _RootBarrierState(completed=set(), pending={})
         )
         key = ReplayTurnKey(turn.conversation_id, turn.turn_index)
-        if self._ready(state, key):
+        if self._ready(state, key) and not self._releases_paused:
             return await issue()
         if key in state.pending:
             raise RuntimeError(
@@ -204,6 +209,8 @@ class ReplayBarrierCoordinator:
             root_id, _RootBarrierState(completed=set(), pending={})
         )
         state.completed.add(ReplayTurnKey(credit.conversation_id, credit.turn_index))
+        if self._releases_paused:
+            return
         ready = [key for key in state.pending if self._ready(state, key)]
         for key in sorted(ready):
             pending = state.pending.pop(key)
@@ -329,6 +336,11 @@ class ReplayIssueGate:
 
     def set_credit_issued(self, callback: Callable[[Credit], Awaitable[None]]) -> None:
         self._credit_issued = callback
+
+    def pause_releases(self) -> None:
+        """Retain ready barrier work instead of issuing it immediately."""
+        if self._coordinator is not None:
+            self._coordinator.pause_releases()
 
     async def submit(
         self,

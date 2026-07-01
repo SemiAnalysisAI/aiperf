@@ -267,7 +267,13 @@ async def test_cache_warmup_cutoff_stops_issuer_and_persists_next_turn():
         trajectories=[trajectory],
         cache_warmup_duration=10.0,
     )
-    issuer.mark_sending_complete = MagicMock()
+    cutoff_order: list[str] = []
+    issuer.replay_gate.pause_releases.side_effect = lambda: cutoff_order.append(
+        "pause_releases"
+    )
+    issuer.mark_sending_complete = MagicMock(
+        side_effect=lambda: cutoff_order.append("mark_sending_complete")
+    )
 
     await strategy.execute_phase()
     baseline = issuer.issue_credit.await_args_list[0].args[0]
@@ -293,6 +299,8 @@ async def test_cache_warmup_cutoff_stops_issuer_and_persists_next_turn():
     await strategy.finalize_phase()
 
     issuer.mark_sending_complete.assert_called_once_with()
+    issuer.replay_gate.pause_releases.assert_called_once_with()
+    assert cutoff_order == ["pause_releases", "mark_sending_complete"]
     snapshot = source.trajectories[0].snapshot
     assert snapshot is not None
     assert len(snapshot.states) == 1

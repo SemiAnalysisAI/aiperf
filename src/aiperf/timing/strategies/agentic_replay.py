@@ -605,6 +605,7 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
     async def _finish_accelerated_warmup(self) -> None:
         """Stop new pressure traffic and let all issued requests drain."""
         self.info("WARMUP cache pressure duration reached; draining requests")
+        self.credit_issuer.replay_gate.pause_releases()
         self.credit_issuer.mark_sending_complete()
 
     async def _dispatch_accelerated_trajectory(
