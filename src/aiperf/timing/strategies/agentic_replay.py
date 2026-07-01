@@ -690,8 +690,33 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
                 time.perf_counter_ns()
             )
 
-    async def _handle_accelerated_warmup_return(self, credit: Credit) -> None:
+    async def _handle_accelerated_warmup_return(
+        self, credit: Credit, *, error: str | None = None
+    ) -> None:
         """Issue the next compressed turn or recycle a completed tree."""
+        if error is not None:
+            self.warning(
+                lambda: (
+                    f"Stopping accelerated warmup stream {credit.x_correlation_id} "
+                    f"for trace {credit.conversation_id} after request error; "
+                    "initial warmup already succeeded, so this does not abort "
+                    "the profiling handoff."
+                )
+            )
+            self._handoff_credits.pop(credit.x_correlation_id, None)
+            if credit.agent_depth > 0 and self.branch_orchestrator is not None:
+                await self.branch_orchestrator.on_child_stopped(credit.x_correlation_id)
+            elif (
+                credit.agent_depth == 0
+                and self._session_tree_registry is not None
+                and self._session_tree_registry.has_tree(
+                    credit.effective_root_correlation_id
+                )
+            ):
+                self._session_tree_registry.on_root_terminal(
+                    credit.effective_root_correlation_id
+                )
+            return
         if credit.is_final_turn:
             if credit.agent_depth == 0 and not self._has_tree_registry:
                 await self._spawn_from_recycle_or_id(
@@ -1045,7 +1070,7 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         second time the parent re-runs.
         """
         if self.config.phase == CreditPhase.WARMUP:
-            await self._handle_warmup_return(credit)
+            await self._handle_warmup_return(credit, error=error)
             return
 
         terminal_overflow = (
@@ -1100,12 +1125,14 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
             finished_correlation_id=credit.x_correlation_id,
         )
 
-    async def _handle_warmup_return(self, credit: Credit) -> None:
+    async def _handle_warmup_return(
+        self, credit: Credit, *, error: str | None = None
+    ) -> None:
         """Advance baseline warmup into the optional cache-pressure stage."""
         if self._cache_warmup_duration is None:
             return
         if self._accelerated_warmup_started:
-            await self._handle_accelerated_warmup_return(credit)
+            await self._handle_accelerated_warmup_return(credit, error=error)
             return
         self._baseline_warmup_returns[credit.x_correlation_id] = credit
         if (
@@ -1475,14 +1502,23 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
             target=self._cache_bust_target,
         )
 
-    def record_warmup_failure(self, trace_id: str) -> None:
+    def record_warmup_failure(self, trace_id: str) -> bool:
         """Accumulate a terminal warmup credit failure for later reporting.
 
         Invoked by ``CreditCallbackHandler`` on every WARMUP credit return
         whose final turn carried an error or cancellation. Per-trajectory
         attribution stays alongside the trajectory list itself.
         """
+        if self._accelerated_warmup_started:
+            self.warning(
+                lambda: (
+                    f"Ignoring accelerated cache-warmup failure for trace {trace_id}; "
+                    "the required baseline warmup already completed."
+                )
+            )
+            return False
         self._failed_warmup_traces.append(trace_id)
+        return True
 
     def report_warmup_failures(self) -> None:
         """Raise TrajectoryWarmupFailedError if any warmup credits failed terminally.

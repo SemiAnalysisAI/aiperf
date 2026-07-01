@@ -524,6 +524,23 @@ class TestWarmupEarlyAbort:
 
         abort_cb.assert_awaited_once()
 
+    async def test_warmup_failure_opt_out_does_not_fire_abort(
+        self, early_abort_handler, abort_cb, warmup_strategy
+    ):
+        """Strategies may mark a WARMUP failure as non-terminal for live abort."""
+        warmup_strategy.record_warmup_failure.return_value = False
+        credit = make_credit(turn_index=0, num_turns=3, phase=CreditPhase.WARMUP)
+        credit_return = CreditReturn(
+            credit=credit, cancelled=False, first_token_sent=False, error="server 500"
+        )
+
+        await early_abort_handler.on_credit_return("worker-1", credit_return)
+
+        warmup_strategy.record_warmup_failure.assert_called_once_with(
+            credit.conversation_id
+        )
+        abort_cb.assert_not_awaited()
+
     async def test_subsequent_warmup_failures_do_not_refire_abort(
         self, early_abort_handler, abort_cb, warmup_strategy
     ):

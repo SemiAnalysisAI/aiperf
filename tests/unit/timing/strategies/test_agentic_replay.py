@@ -259,11 +259,26 @@ async def test_cache_warmup_starts_after_baseline_and_removes_idle_delay():
 
 @pytest.mark.asyncio
 async def test_cache_warmup_cutoff_stops_issuer_and_persists_next_turn():
+    dataset = DatasetMetadata(
+        conversations=[
+            ConversationMetadata(
+                conversation_id="trace_0",
+                turns=[
+                    TurnMetadata(),
+                    TurnMetadata(),
+                    TurnMetadata(),
+                    TurnMetadata(delay_ms=2_500.0),
+                ],
+            )
+        ],
+        sampling_strategy=DatasetSamplingStrategy.SEQUENTIAL,
+    )
     trajectory = Trajectory(conversation_id="trace_0", start_turn_index=1)
     strategy, issuer, _, source = _make_strategy(
         phase=CreditPhase.WARMUP,
         trajectories=[trajectory],
         cache_warmup_duration=10.0,
+        dataset=dataset,
     )
     issuer.mark_sending_complete = MagicMock()
 
@@ -295,6 +310,7 @@ async def test_cache_warmup_cutoff_stops_issuer_and_persists_next_turn():
     assert snapshot is not None
     assert len(snapshot.states) == 1
     assert snapshot.states[0].next_turn_index == 3
+    assert snapshot.states[0].next_dispatch_offset_ms == pytest.approx(2_500.0, abs=1.0)
     assert snapshot.states[0].x_correlation_id == baseline.x_correlation_id
     assert snapshot.replay_resume_boundaries == (ReplayResumeBoundary("trace_0", 3),)
 
@@ -410,6 +426,47 @@ def test_cache_warmup_handoff_elapsed_wait_can_exhaust_delay() -> None:
     states_by_lane = strategy._build_handoff_states(finalized_at_ns=4_000_000_000)
 
     assert states_by_lane[0][0].next_dispatch_offset_ms == pytest.approx(0.0)
+
+
+@pytest.mark.asyncio
+async def test_accelerated_warmup_error_stops_stream_without_recording_failure():
+    trajectory = Trajectory(conversation_id="trace_0", start_turn_index=1)
+    strategy, issuer, _, source = _make_strategy(
+        phase=CreditPhase.WARMUP,
+        trajectories=[trajectory],
+        cache_warmup_duration=10.0,
+    )
+
+    await strategy.execute_phase()
+    baseline = issuer.issue_credit.await_args_list[0].args[0]
+    await strategy.handle_credit_return(
+        _make_credit(
+            conversation_id="trace_0",
+            x_correlation_id=baseline.x_correlation_id,
+            turn_index=1,
+            num_turns=4,
+            phase=CreditPhase.WARMUP,
+        )
+    )
+    pressure = _make_credit(
+        conversation_id="trace_0",
+        x_correlation_id=baseline.x_correlation_id,
+        turn_index=2,
+        num_turns=4,
+        phase=CreditPhase.WARMUP,
+    )
+    strategy.observe_credit_return(pressure)
+
+    await strategy.handle_credit_return(pressure, error="server disconnected")
+    assert issuer.issue_credit.await_count == 2
+    assert strategy.record_warmup_failure("trace_0") is False
+    strategy.report_warmup_failures()
+
+    await strategy.finalize_phase()
+    snapshot = source.trajectories[0].snapshot
+    assert snapshot is not None
+    assert snapshot.states[0].next_turn_index == 0
+    assert snapshot.states[0].x_correlation_id != baseline.x_correlation_id
 
 
 def test_handoff_preserves_completed_streams_absent_from_live_state() -> None:
