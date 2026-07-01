@@ -15,6 +15,8 @@ from aiperf.plugin.enums import (
 )
 from aiperf.timing.request_cancellation import RequestCancellationConfig
 
+_AGENTIC_CACHE_WARMUP_DEFAULT_GRACE_PERIOD_SEC = 300.0
+
 
 class TimingConfig(AIPerfBaseModel):
     """Configuration for TimingManager and timing strategies.
@@ -225,8 +227,15 @@ def _agentic_warmup_grace_period(loadgen: LoadGeneratorConfig) -> float | None:
     warmup_grace_period = loadgen.warmup_grace_period
     if warmup_grace_period is not None:
         return warmup_grace_period
-    if loadgen.agentic_cache_warmup_duration is not None:
-        return loadgen.benchmark_grace_period
+    cache_warmup_duration = loadgen.agentic_cache_warmup_duration
+    if cache_warmup_duration is not None:
+        default_grace_period = min(
+            cache_warmup_duration,
+            _AGENTIC_CACHE_WARMUP_DEFAULT_GRACE_PERIOD_SEC,
+        )
+        if loadgen.benchmark_grace_period is None:
+            return default_grace_period
+        return max(loadgen.benchmark_grace_period, default_grace_period)
     return float("inf")
 
 
