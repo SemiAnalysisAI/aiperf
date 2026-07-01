@@ -1338,6 +1338,8 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         for state in dispatchable:
             session = self.conversation_source.session_for_state(state)
             turn = self._build_turn_for_session(session, state.next_turn_index)
+            if state.agent_depth == 0:
+                turn = _struct_replace(turn, is_session_start=True)
             delay_s = (
                 offset_by_corr[state.x_correlation_id] - t0_offset_ms
             ) / MILLIS_PER_SECOND

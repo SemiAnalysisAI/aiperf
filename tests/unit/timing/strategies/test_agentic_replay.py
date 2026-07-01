@@ -2704,6 +2704,9 @@ async def test_rooted_snapshot_acquires_no_lane_credit():
     await strategy.execute_phase()
 
     assert issuer.acquire_lane_credit.await_count == 0
+    dispatched = issuer.issue_credit.await_args.args[0]
+    assert dispatched.turn_index == 1
+    assert dispatched.is_session_start is True
 
 
 @pytest.mark.asyncio
