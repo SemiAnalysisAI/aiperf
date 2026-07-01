@@ -9,6 +9,7 @@ Owns the LoopScheduler and all per-phase components (lifecycle, progress, stop_c
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING
@@ -630,6 +631,59 @@ class PhaseRunner(TaskManagerMixin):
             False,
         )
 
+    async def _wait_for_accelerated_warmup_wire_drain(self) -> None:
+        while self._progress.in_flight > 0:
+            await asyncio.sleep(0.1)
+
+    async def _cancel_accelerated_warmup_drain(self, *, timeout: float | None) -> None:
+        stats = self._progress.create_stats(self._lifecycle)
+        self.warning(
+            "Accelerated warmup drain timed out"
+            + (f" after {timeout:.1f}s" if timeout is not None else "")
+            + "; cancelling all in-flight warmup credits. "
+            f"Stats: sent={stats.requests_sent}, "
+            f"completed={stats.requests_completed}, "
+            f"cancelled={stats.requests_cancelled}, "
+            f"in_flight={stats.in_flight_requests}"
+        )
+        await self._credit_router.cancel_all_credits()
+        drain_timeout = Environment.TIMING.CANCEL_DRAIN_TIMEOUT
+        try:
+            await asyncio.wait_for(
+                self._wait_for_accelerated_warmup_wire_drain(),
+                timeout=drain_timeout,
+            )
+            self.info("All cancelled accelerated-warmup credits returned")
+        except asyncio.TimeoutError:
+            self.error(
+                f"Timeout waiting {drain_timeout}s for cancelled accelerated-warmup "
+                "credits to return. Forcing phase completion."
+            )
+            self._release_stuck_slots()
+        self._progress.all_credits_returned_event.set()
+
+    async def _wait_for_accelerated_warmup_handoff(self) -> None:
+        timeout = self._config.grace_period_sec
+        if timeout is None or math.isinf(timeout):
+            await self._wait_for_accelerated_warmup_wire_drain()
+        else:
+            try:
+                await asyncio.wait_for(
+                    self._wait_for_accelerated_warmup_wire_drain(),
+                    timeout=timeout,
+                )
+            except asyncio.TimeoutError as exc:
+                await self._cancel_accelerated_warmup_drain(timeout=timeout)
+                raise TimeoutError(
+                    "Accelerated warmup drain timed out before all wire "
+                    "requests returned"
+                ) from exc
+        self.info(
+            "All accelerated-warmup wire requests returned; "
+            "preserving paused DAG work for profiling handoff."
+        )
+        self._progress.all_credits_returned_event.set()
+
     async def _wait_for_sending_complete(
         self, strategy: TimingStrategyProtocol
     ) -> None:
@@ -715,13 +769,7 @@ class PhaseRunner(TaskManagerMixin):
                 return
 
             if allows_pending_branch_handoff:
-                while self._progress.in_flight > 0:
-                    await asyncio.sleep(0.1)
-                self.info(
-                    "All accelerated-warmup wire requests returned; "
-                    "preserving paused DAG work for profiling handoff."
-                )
-                self._progress.all_credits_returned_event.set()
+                await self._wait_for_accelerated_warmup_handoff()
                 return
 
             timeout = self._lifecycle.time_left_in_seconds(include_grace_period=True)
