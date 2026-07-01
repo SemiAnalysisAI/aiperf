@@ -23,7 +23,7 @@ from aiperf.common.models import (
     TurnMetadata,
 )
 from aiperf.common.scenario.base import TrajectoryWarmupFailedError
-from aiperf.credit.structs import Credit
+from aiperf.credit.structs import Credit, TurnToSend
 from aiperf.dataset.dataset_samplers import SequentialSampler
 from aiperf.plugin.enums import DatasetSamplingStrategy
 from aiperf.timing.replay_dependencies import ReplayResumeBoundary
@@ -104,6 +104,8 @@ def _make_strategy(
     issuer = issuer if issuer is not None else AsyncMock()
     issuer.replay_gate = MagicMock()
     issuer.replay_gate.completed_prefixes.return_value = ()
+    issuer.replay_gate.pending_turns.return_value = ()
+    issuer.replay_gate.pending_turns_by_root.return_value = {}
     scheduler = scheduler if scheduler is not None else MagicMock()
     strategy = AgenticReplayStrategy(
         config=cfg,
@@ -435,6 +437,39 @@ def test_handoff_preserves_completed_streams_absent_from_live_state() -> None:
         ReplayResumeBoundary("trace_0::aux:0", 1),
     )
     issuer.replay_gate.completed_prefixes.assert_called_once_with("root")
+
+
+def test_cache_warmup_handoff_preserves_pending_replay_barrier_turns() -> None:
+    strategy, issuer, _, _ = _make_strategy(
+        phase=CreditPhase.WARMUP,
+        trajectories=[Trajectory(conversation_id="trace_0", start_turn_index=0)],
+        cache_warmup_duration=10.0,
+    )
+    pending_turn = TurnToSend(
+        conversation_id="trace_0::fa:001",
+        x_correlation_id="child",
+        turn_index=0,
+        num_turns=3,
+        agent_depth=1,
+        parent_correlation_id="root",
+        root_correlation_id="root",
+    )
+    issuer.replay_gate.pending_turns_by_root.return_value = {"root": (pending_turn,)}
+    strategy._root_to_lane["root"] = 0
+
+    states_by_lane = strategy._build_handoff_states(finalized_at_ns=0)
+
+    assert len(states_by_lane[0]) == 1
+    state = states_by_lane[0][0]
+    assert state.conversation_id == "trace_0::fa:001"
+    assert state.x_correlation_id == "child"
+    assert state.next_turn_index == 0
+    assert state.next_dispatch_offset_ms == 0.0
+    assert state.agent_depth == 1
+    assert state.parent_correlation_id == "root"
+    assert state.root_correlation_id == "root"
+    assert state.waiting_on_children is False
+    issuer.replay_gate.pending_turns_by_root.assert_called_once_with()
 
 
 @pytest.mark.asyncio

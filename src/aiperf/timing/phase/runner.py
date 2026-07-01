@@ -385,7 +385,7 @@ class PhaseRunner(TaskManagerMixin):
 
             self._execution_task = self.execute_async(strategy.execute_phase())
 
-            await self._wait_for_sending_complete()
+            await self._wait_for_sending_complete(strategy)
 
             if self._was_cancelled:
                 if not self._lifecycle.is_complete:
@@ -425,6 +425,8 @@ class PhaseRunner(TaskManagerMixin):
             finalize_phase = getattr(strategy, "finalize_phase", None)
             if finalize_phase is not None:
                 await finalize_phase()
+            if self._preserve_replay_gate_until_finalize(strategy):
+                await self._credit_issuer.replay_gate.cancel(notify_refused=False)
             self._branch_orchestrator.cleanup()
             self._release_tree_slots()
 
@@ -619,7 +621,18 @@ class PhaseRunner(TaskManagerMixin):
         ]
         return " | ".join(parts)
 
-    async def _wait_for_sending_complete(self) -> None:
+    def _preserve_replay_gate_until_finalize(
+        self, strategy: TimingStrategyProtocol
+    ) -> bool:
+        return self._config.phase == CreditPhase.WARMUP and getattr(
+            strategy,
+            "allows_pending_branch_handoff_after_sending_complete",
+            False,
+        )
+
+    async def _wait_for_sending_complete(
+        self, strategy: TimingStrategyProtocol
+    ) -> None:
         """Wait for phase to send all credits (with timeout).
 
         Uses lifecycle.time_left_in_seconds() for timeout duration.
@@ -647,9 +660,10 @@ class PhaseRunner(TaskManagerMixin):
                 self._scheduler.cancel_all_pending()
                 self._progress.all_credits_sent_event.set()
 
-            await self._credit_issuer.replay_gate.cancel(
-                notify_refused=self._config.phase == CreditPhase.PROFILING
-            )
+            if not self._preserve_replay_gate_until_finalize(strategy):
+                await self._credit_issuer.replay_gate.cancel(
+                    notify_refused=self._config.phase == CreditPhase.PROFILING
+                )
 
             stats = self._progress.create_stats(self._lifecycle)
             self.notice(self._format_phase_sending_complete(stats))

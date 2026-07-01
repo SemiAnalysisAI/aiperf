@@ -732,41 +732,172 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         """Convert drained credits and join annotations into lane states."""
         if finalized_at_ns is None:
             finalized_at_ns = time.perf_counter_ns()
-        blocked: dict[str, int] = {}
-        child_annotations: dict[str, tuple[str | None, int | None]] = {}
-        if self.branch_orchestrator is not None:
-            blocked, child_annotations = self.branch_orchestrator.snapshot_annotations()
-
+        blocked, child_annotations = self._handoff_annotations()
         states_by_lane: dict[int, list[ConversationState]] = {
             lane: [] for lane in range(len(self.conversation_source.trajectories))
         }
-        for credit in self._handoff_credits.values():
-            lane = self._root_to_lane.get(credit.effective_root_correlation_id)
-            if lane is None or credit.turn_index + 1 >= credit.num_turns:
-                continue
-            branch_id, join_target = child_annotations.get(
-                credit.x_correlation_id, (None, None)
-            )
-            states_by_lane[lane].append(
-                ConversationState(
-                    conversation_id=credit.conversation_id,
-                    x_correlation_id=credit.x_correlation_id,
-                    next_turn_index=credit.turn_index + 1,
-                    next_dispatch_offset_ms=self._handoff_residual_delay_ms(
-                        credit, finalized_at_ns=finalized_at_ns
-                    ),
-                    agent_depth=credit.agent_depth,
-                    parent_correlation_id=credit.parent_correlation_id,
-                    root_correlation_id=credit.root_correlation_id,
-                    waiting_on_children=credit.x_correlation_id in blocked,
-                    join_target_turn_index=(
-                        blocked.get(credit.x_correlation_id, join_target)
-                    ),
-                    branch_id=branch_id,
-                    branch_mode=credit.branch_mode,
-                )
-            )
+        seen_states = self._add_returned_handoff_states(
+            states_by_lane,
+            blocked=blocked,
+            child_annotations=child_annotations,
+            finalized_at_ns=finalized_at_ns,
+        )
+        self._add_pending_handoff_states(
+            states_by_lane, seen_states, child_annotations=child_annotations
+        )
         return states_by_lane
+
+    def _handoff_annotations(
+        self,
+    ) -> tuple[dict[str, int], dict[str, tuple[str | None, int | None]]]:
+        if self.branch_orchestrator is None:
+            return {}, {}
+        return self.branch_orchestrator.snapshot_annotations()
+
+    def _add_returned_handoff_states(
+        self,
+        states_by_lane: dict[int, list[ConversationState]],
+        *,
+        blocked: dict[str, int],
+        child_annotations: dict[str, tuple[str | None, int | None]],
+        finalized_at_ns: int,
+    ) -> set[tuple[str, str, int]]:
+        seen_states: set[tuple[str, str, int]] = set()
+        for credit in self._handoff_credits.values():
+            handoff = self._returned_credit_handoff_state(
+                credit,
+                blocked=blocked,
+                child_annotations=child_annotations,
+                finalized_at_ns=finalized_at_ns,
+            )
+            if handoff is None:
+                continue
+            lane, state = handoff
+            seen_states.add(
+                (state.conversation_id, state.x_correlation_id, state.next_turn_index)
+            )
+            states_by_lane[lane].append(state)
+        return seen_states
+
+    def _returned_credit_handoff_state(
+        self,
+        credit: Credit,
+        *,
+        blocked: dict[str, int],
+        child_annotations: dict[str, tuple[str | None, int | None]],
+        finalized_at_ns: int,
+    ) -> tuple[int, ConversationState] | None:
+        lane = self._root_to_lane.get(credit.effective_root_correlation_id)
+        if lane is None or credit.turn_index + 1 >= credit.num_turns:
+            return None
+        branch_id, join_target = child_annotations.get(
+            credit.x_correlation_id, (None, None)
+        )
+        return lane, ConversationState(
+            conversation_id=credit.conversation_id,
+            x_correlation_id=credit.x_correlation_id,
+            next_turn_index=credit.turn_index + 1,
+            next_dispatch_offset_ms=self._handoff_residual_delay_ms(
+                credit, finalized_at_ns=finalized_at_ns
+            ),
+            agent_depth=credit.agent_depth,
+            parent_correlation_id=credit.parent_correlation_id,
+            root_correlation_id=credit.root_correlation_id,
+            waiting_on_children=credit.x_correlation_id in blocked,
+            join_target_turn_index=blocked.get(credit.x_correlation_id, join_target),
+            branch_id=branch_id,
+            branch_mode=credit.branch_mode,
+        )
+
+    def _add_pending_handoff_states(
+        self,
+        states_by_lane: dict[int, list[ConversationState]],
+        seen_states: set[tuple[str, str, int]],
+        *,
+        child_annotations: dict[str, tuple[str | None, int | None]],
+    ) -> None:
+        for root_correlation_id, turns in self._pending_handoff_turns_by_root().items():
+            for turn in turns:
+                handoff = self._pending_turn_handoff_state(
+                    root_correlation_id,
+                    turn,
+                    seen_states,
+                    child_annotations=child_annotations,
+                )
+                if handoff is None:
+                    continue
+                lane, state_key, state = handoff
+                seen_states.add(state_key)
+                states_by_lane[lane].append(state)
+
+    def _pending_handoff_turns_by_root(self) -> dict[str, tuple[TurnToSend, ...]]:
+        pending_by_root_getter = getattr(
+            self.credit_issuer.replay_gate, "pending_turns_by_root", None
+        )
+        if callable(pending_by_root_getter):
+            pending_by_root = dict(pending_by_root_getter())
+        else:
+            pending_by_root = {}
+        pending_turns_getter = getattr(
+            self.credit_issuer.replay_gate, "pending_turns", None
+        )
+        if callable(pending_turns_getter):
+            for root_correlation_id in self._root_to_lane:
+                pending_by_root.setdefault(
+                    root_correlation_id,
+                    tuple(pending_turns_getter(root_correlation_id)),
+                )
+        return pending_by_root
+
+    def _pending_turn_handoff_state(
+        self,
+        root_correlation_id: str,
+        turn: TurnToSend,
+        seen_states: set[tuple[str, str, int]],
+        *,
+        child_annotations: dict[str, tuple[str | None, int | None]],
+    ) -> tuple[int, tuple[str, str, int], ConversationState] | None:
+        lane = self._handoff_lane_for_turn(root_correlation_id, turn)
+        state_key = (turn.conversation_id, turn.x_correlation_id, turn.turn_index)
+        if (
+            lane is None
+            or state_key in seen_states
+            or turn.turn_index >= turn.num_turns
+        ):
+            return None
+        self._root_to_lane[turn.effective_root_correlation_id] = lane
+        branch_id, join_target = child_annotations.get(
+            turn.x_correlation_id, (None, None)
+        )
+        state = ConversationState(
+            conversation_id=turn.conversation_id,
+            x_correlation_id=turn.x_correlation_id,
+            next_turn_index=turn.turn_index,
+            next_dispatch_offset_ms=0.0,
+            agent_depth=turn.agent_depth,
+            parent_correlation_id=turn.parent_correlation_id,
+            root_correlation_id=turn.root_correlation_id,
+            waiting_on_children=False,
+            join_target_turn_index=join_target,
+            branch_id=branch_id,
+            branch_mode=turn.branch_mode,
+        )
+        return lane, state_key, state
+
+    def _handoff_lane_for_turn(
+        self, root_correlation_id: str, turn: TurnToSend
+    ) -> int | None:
+        lane = self._root_to_lane.get(root_correlation_id)
+        if lane is not None:
+            return lane
+        lane = self._root_to_lane.get(turn.effective_root_correlation_id)
+        if lane is not None:
+            return lane
+        if turn.parent_correlation_id is not None:
+            lane = self._correlation_to_lane.get(turn.parent_correlation_id)
+            if lane is not None:
+                return lane
+        return self._correlation_to_lane.get(turn.x_correlation_id)
 
     def _handoff_residual_delay_ms(
         self, credit: Credit, *, finalized_at_ns: int

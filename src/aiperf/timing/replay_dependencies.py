@@ -124,6 +124,7 @@ def infer_cross_stream_predecessors(
 
 @dataclass(slots=True)
 class _PendingDispatch:
+    turn: TurnToSend
     issue: Callable[[], Awaitable[bool]]
     on_refused: Callable[[], Awaitable[None]] | None
 
@@ -189,7 +190,9 @@ class ReplayBarrierCoordinator:
             raise RuntimeError(
                 f"Duplicate deferred replay dispatch for root={root_id!r}, turn={key!r}"
             )
-        state.pending[key] = _PendingDispatch(issue=issue, on_refused=on_refused)
+        state.pending[key] = _PendingDispatch(
+            turn=turn, issue=issue, on_refused=on_refused
+        )
         return True
 
     def complete(self, credit: Credit) -> None:
@@ -261,6 +264,23 @@ class ReplayBarrierCoordinator:
                 next_turn_by_conversation.items()
             )
         )
+
+    def pending_turns(self, root_id: str) -> tuple[TurnToSend, ...]:
+        """Return barrier-retained turns that have not gone on wire yet."""
+        state = self._roots.get(root_id)
+        if state is None:
+            return ()
+        return tuple(pending.turn for key, pending in sorted(state.pending.items()))
+
+    def pending_turns_by_root(self) -> dict[str, tuple[TurnToSend, ...]]:
+        """Return all barrier-retained turns grouped by runtime root id."""
+        return {
+            root_id: tuple(
+                pending.turn for key, pending in sorted(state.pending.items())
+            )
+            for root_id, state in self._roots.items()
+            if state.pending
+        }
 
     async def cancel_pending(self, *, notify_refused: bool) -> None:
         """Cancel retained dispatches during phase teardown."""
@@ -353,6 +373,16 @@ class ReplayIssueGate:
         if self._coordinator is None:
             return ()
         return self._coordinator.completed_prefixes(root_correlation_id)
+
+    def pending_turns(self, root_correlation_id: str) -> tuple[TurnToSend, ...]:
+        if self._coordinator is None:
+            return ()
+        return self._coordinator.pending_turns(root_correlation_id)
+
+    def pending_turns_by_root(self) -> dict[str, tuple[TurnToSend, ...]]:
+        if self._coordinator is None:
+            return {}
+        return self._coordinator.pending_turns_by_root()
 
     async def cancel(self, *, notify_refused: bool) -> None:
         if self._coordinator is not None:

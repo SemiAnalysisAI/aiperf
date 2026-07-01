@@ -150,6 +150,31 @@ async def test_scalar_peak_would_slip_d_after_only_one_completion() -> None:
 
 
 @pytest.mark.asyncio
+async def test_pending_turns_exposes_deferred_dispatch_for_phase_handoff() -> None:
+    coordinator = ReplayBarrierCoordinator(_metadata())
+    coordinator.activate()
+    issued: list[str] = []
+    pending_turn = _turn("d")
+
+    await coordinator.submit(
+        pending_turn,
+        lambda: _record_issue(issued, "d"),
+    )
+
+    assert issued == []
+    assert coordinator.pending_turns("root") == (pending_turn,)
+    assert coordinator.pending_turns_by_root() == {"root": (pending_turn,)}
+
+    for name in "abc":
+        coordinator.complete(_credit(name))
+    await asyncio.sleep(0)
+
+    assert issued == ["d"]
+    assert coordinator.pending_turns("root") == ()
+    assert coordinator.pending_turns_by_root() == {}
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "submission_order",
     [

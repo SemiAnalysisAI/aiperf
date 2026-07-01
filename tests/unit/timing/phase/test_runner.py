@@ -827,6 +827,32 @@ class TestEdgeCases:
         assert r._lifecycle.is_complete
         r._branch_orchestrator.has_pending_branch_work.assert_not_called()
 
+    async def test_cache_warmup_sending_complete_preserves_replay_gate_until_finalize(
+        self,
+        conv_src: MagicMock,
+        pub: MagicMock,
+        router: MagicMock,
+        conc: MagicMock,
+        cancel: MagicMock,
+        cb: MagicMock,
+    ) -> None:
+        r = make_runner(
+            cfg(phase=CreditPhase.WARMUP), conv_src, pub, router, conc, cancel, cb
+        )
+        strategy = MagicMock()
+        strategy.allows_pending_branch_handoff_after_sending_complete = True
+        r._credit_issuer.replay_gate.cancel = AsyncMock()
+        r._lifecycle.start()
+
+        with patch.object(
+            r,
+            "_wait_for_event_with_timeout",
+            new=AsyncMock(return_value=True),
+        ):
+            await r._wait_for_sending_complete(strategy)
+
+        r._credit_issuer.replay_gate.cancel.assert_not_awaited()
+
     async def test_cache_warmup_handoff_polls_until_wire_drain(
         self,
         conv_src: MagicMock,
