@@ -1824,6 +1824,9 @@ class WekaTraceLoader(HashIdsPromptSynthesisMixin, BaseFileLoader):
                         api_time_ms=None
                         if ignore_delays
                         else _api_time_ms(req.api_time),
+                        source_trace_id=plan.trace_id,
+                        source_outer_idx=outer_idx,
+                        source_kind="weka_main",
                         model=model_map.get(req.model, req.model),
                         max_tokens=self._cap_output(req),
                         raw_messages=delta.delta_messages,
@@ -2162,6 +2165,8 @@ class WekaTraceLoader(HashIdsPromptSynthesisMixin, BaseFileLoader):
                         api_time_ms=None
                         if ignore_delays
                         else _api_time_ms(creq.api_time),
+                        source_trace_id=cp.parent_trace_id,
+                        source_kind="weka_subagent",
                         model=child_model_map.get(creq.model, creq.model),
                         max_tokens=creq.output_length,
                         raw_messages=child_delta.delta_messages,
@@ -2214,7 +2219,7 @@ class WekaTraceLoader(HashIdsPromptSynthesisMixin, BaseFileLoader):
             [(r.hash_ids, r.input_length) for _, r in fp.requests],
             fp.block_size,
         )
-        for k, (_outer_idx, req) in enumerate(fp.requests):
+        for k, (outer_idx, req) in enumerate(fp.requests):
             seed = f"{fp.session_id}:turn_{k}:partial_tail"
             input_kind = _classify_turn_input(req, fp.requests[k - 1][1] if k else None)
             is_tool_result = input_kind == TurnInputKind.TOOL_RESULT
@@ -2253,6 +2258,9 @@ class WekaTraceLoader(HashIdsPromptSynthesisMixin, BaseFileLoader):
                     timestamp=None if ignore_delays else t_ms,
                     delay=None if ignore_delays else delay_ms,
                     api_time_ms=None if ignore_delays else _api_time_ms(req.api_time),
+                    source_trace_id=fp.parent_trace_id,
+                    source_outer_idx=outer_idx,
+                    source_kind="weka_flat",
                     model=model_map.get(req.model, req.model),
                     max_tokens=self._cap_output(req),
                     raw_messages=delta.delta_messages,
@@ -2494,7 +2502,7 @@ class WekaTraceLoader(HashIdsPromptSynthesisMixin, BaseFileLoader):
         trace_idle_timing = trace_idle_timing_by_trace.get(fp.parent_trace_id)
         flat_metric_values = metric_values_by_trace[fp.parent_trace_id]
         requests_dicts: list[_WekaNormalRequestPayload] = []
-        for k, (_outer_idx, req) in enumerate(fp.requests):
+        for k, (outer_idx, req) in enumerate(fp.requests):
             hit_blocks, total_blocks = flat_metric_values[(fp.session_id, k)]
             req_payload: _WekaNormalRequestPayload = {
                 "hash_ids": list(req.hash_ids),
@@ -2507,6 +2515,9 @@ class WekaTraceLoader(HashIdsPromptSynthesisMixin, BaseFileLoader):
                 "input_kind": _classify_turn_input(
                     req, fp.requests[k - 1][1] if k else None
                 ),
+                "source_trace_id": fp.parent_trace_id,
+                "source_outer_idx": outer_idx,
+                "source_kind": "weka_flat",
                 "capped_output_length": self._cap_output(req),
                 "theoretical_hit_blocks": hit_blocks,
                 "theoretical_total_blocks": total_blocks,
@@ -2707,6 +2718,9 @@ class WekaTraceLoader(HashIdsPromptSynthesisMixin, BaseFileLoader):
                         timestamp=t_dict["timestamp"],
                         delay=t_dict["delay"],
                         api_time_ms=t_dict.get("api_time_ms"),
+                        source_trace_id=t_dict.get("source_trace_id"),
+                        source_outer_idx=t_dict.get("source_outer_idx"),
+                        source_kind=t_dict.get("source_kind"),
                         model=t_dict["model"],
                         max_tokens=t_dict["max_tokens"],
                         raw_messages=t_dict["raw_messages"],
@@ -2763,6 +2777,9 @@ class WekaTraceLoader(HashIdsPromptSynthesisMixin, BaseFileLoader):
                             timestamp=t_dict["timestamp"],
                             delay=t_dict["delay"],
                             api_time_ms=t_dict.get("api_time_ms"),
+                            source_trace_id=t_dict.get("source_trace_id"),
+                            source_outer_idx=t_dict.get("source_outer_idx"),
+                            source_kind=t_dict.get("source_kind"),
                             model=t_dict["model"],
                             max_tokens=t_dict["max_tokens"],
                             raw_messages=t_dict["raw_messages"],

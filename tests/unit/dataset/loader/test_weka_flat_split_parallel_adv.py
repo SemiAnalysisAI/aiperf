@@ -254,6 +254,9 @@ def _assert_parity(serial: list[Conversation], parallel: list[Conversation]) -> 
             ctx = f"{sid} turn {k}"
             assert st.timestamp == pt.timestamp, ctx
             assert st.delay == pt.delay, ctx
+            assert st.source_trace_id == pt.source_trace_id, ctx
+            assert st.source_outer_idx == pt.source_outer_idx, ctx
+            assert st.source_kind == pt.source_kind, ctx
             assert st.model == pt.model, ctx
             assert st.max_tokens == pt.max_tokens, ctx
             assert st.branch_ids == pt.branch_ids, ctx
@@ -400,6 +403,26 @@ def test_convert_mixed_split_directory_ordering_parallel_byte_identical(
     # Invariant: every retained request appears in exactly one conversation
     # exactly once (6 + 3 + 6 requests -> 15 turns).
     assert sum(len(c.turns) for c in serial) == 15
+    convs = _by_sid(serial)
+    assert [
+        (t.source_trace_id, t.source_outer_idx, t.source_kind)
+        for t in convs["trace_a"].turns
+    ] == [
+        ("trace_a", 0, "weka_main"),
+        ("trace_a", 3, "weka_main"),
+        ("trace_a", 5, "weka_main"),
+    ]
+    assert [
+        (t.source_trace_id, t.source_outer_idx, t.source_kind)
+        for t in convs["trace_a::fa:000"].turns
+    ] == [
+        ("trace_a", 1, "weka_flat"),
+        ("trace_a", 4, "weka_flat"),
+    ]
+    assert [
+        (t.source_trace_id, t.source_outer_idx, t.source_kind)
+        for t in convs["trace_a::fa:001"].turns
+    ] == [("trace_a", 2, "weka_flat")]
 
 
 @pytest.mark.parametrize("idle_gap_cap", [None, 4.0])

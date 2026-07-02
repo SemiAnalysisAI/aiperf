@@ -141,6 +141,29 @@ class TurnMetadata(AIPerfBaseModel):
             "without per-request timing."
         ),
     )
+    source_trace_id: str | None = Field(
+        default=None,
+        description=(
+            "Original trace/conversation id that produced this reconstructed turn. "
+            "Set by trace loaders when replay conversations are split or reshaped."
+        ),
+    )
+    source_outer_idx: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Zero-based index of the original top-level source request within "
+            "source_trace_id. Set by Weka trace loaders for turns that map to a "
+            "raw top-level request."
+        ),
+    )
+    source_kind: str | None = Field(
+        default=None,
+        description=(
+            "Loader-specific source classification for the reconstructed turn "
+            "(for example weka_main or weka_flat)."
+        ),
+    )
     replay_predecessors: list["ReplayTurnReference"] = Field(
         default_factory=list,
         description=(
@@ -219,6 +242,29 @@ class Turn(AIPerfBaseModel):
             "(capture per-request api_time). Pairs with timestamp to give the "
             "recorded interval used by happens-before completion gating. A "
             "duration (not warped). None for loaders without per-request timing."
+        ),
+    )
+    source_trace_id: str | None = Field(
+        default=None,
+        description=(
+            "Original trace/conversation id that produced this reconstructed turn. "
+            "Set by trace loaders when replay conversations are split or reshaped."
+        ),
+    )
+    source_outer_idx: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Zero-based index of the original top-level source request within "
+            "source_trace_id. Set by Weka trace loaders for turns that map to a "
+            "raw top-level request."
+        ),
+    )
+    source_kind: str | None = Field(
+        default=None,
+        description=(
+            "Loader-specific source classification for the reconstructed turn "
+            "(for example weka_main or weka_flat)."
         ),
     )
     replay_predecessors: list["ReplayTurnReference"] = Field(
@@ -331,6 +377,9 @@ class Turn(AIPerfBaseModel):
             timestamp_ms=self.timestamp,
             delay_ms=self.delay,
             api_time_ms=self.api_time_ms,
+            source_trace_id=self.source_trace_id,
+            source_outer_idx=self.source_outer_idx,
+            source_kind=self.source_kind,
             replay_predecessors=self.replay_predecessors,
             branch_ids=self.branch_ids,
             prerequisites=self.prerequisites,
