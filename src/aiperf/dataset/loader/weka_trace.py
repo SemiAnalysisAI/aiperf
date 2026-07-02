@@ -548,6 +548,17 @@ def _expand_subagent_to_child_plans(
             )
             if not is_aux and not is_reduction:
                 wg_coord = chain_wg_coord[chain_idx]
+            if wg_coord is None and not is_aux and not is_reduction:
+                merged = sorted(
+                    [
+                        *zip(plans[0].request_inner_indices, plans[0].requests),
+                        *zip(request_inner_indices, chain_requests),
+                    ],
+                    key=lambda item: item[1].t,
+                )
+                plans[0].request_inner_indices = [idx for idx, _ in merged]
+                plans[0].requests = [req for _, req in merged]
+                continue
             suffix = _worker_suffix(
                 n=chain_idx - 1,
                 is_aux=is_aux,
@@ -1311,7 +1322,8 @@ class WekaTraceLoader(HashIdsPromptSynthesisMixin, BaseFileLoader):
         wg_coords = worker_group_assignment(
             detection, group_min=Environment.DATASET.WEKA_WORKER_GROUP_MIN
         )
-        n_aux = n_red = n_wg = 0
+        n_aux = n_red = n_wg = n_fa_merged = 0
+        merged_fa_requests: list[tuple[int, _NormalRequestT]] = []
         for n, ci in enumerate(detection.worker_indices):
             chain = detection.chains[ci]
             chain_reqs = [req for _, req in chain.requests]
@@ -1349,6 +1361,10 @@ class WekaTraceLoader(HashIdsPromptSynthesisMixin, BaseFileLoader):
             n_aux += aux
             n_red += reduction
             n_wg += wg_coord is not None
+            if wg_coord is None and not aux and not reduction:
+                n_fa_merged += 1
+                merged_fa_requests.extend(chain.requests)
+                continue
             flat_plans.append(
                 _FlatChainPlan(
                     session_id=f"{trace_id}::{suffix}",
@@ -1374,7 +1390,8 @@ class WekaTraceLoader(HashIdsPromptSynthesisMixin, BaseFileLoader):
             lambda: f"Trace {trace_id}: detected {1 + len(detection.worker_indices)} "
             f"agents ({detection.seams_merged} seams merged, "
             f"{len(detection.worker_indices)} spawned chains "
-            f"[{n_aux} aux sidecars ({n_red} reductions), {n_wg} worker-group], "
+            f"[{n_aux} aux sidecars ({n_red} reductions), {n_wg} worker-group, "
+            f"{n_fa_merged} merged-fa], "
             f"{detection.unclassified_empty_hash} empty-hash kept on main)"
         )
         # True-DAG fork edges live only in this log in v1 (the orchestrator
@@ -1389,9 +1406,10 @@ class WekaTraceLoader(HashIdsPromptSynthesisMixin, BaseFileLoader):
             )
         )
         main_normals = list(detection.chains[detection.main_index].requests)
-        if preamble:
+        if preamble or merged_fa_requests:
             main_normals = sorted(
-                preamble + main_normals, key=lambda item: (item[1].t, item[0])
+                [*preamble, *main_normals, *merged_fa_requests],
+                key=lambda item: (item[1].t, item[0]),
             )
         return main_normals
 

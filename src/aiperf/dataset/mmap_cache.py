@@ -75,6 +75,13 @@ _logger = AIPerfLogger(__name__)
 # Version 5 fixed the Conversation.metadata() projection of per-turn
 # theoretical prefix-cache block counts for realtime infinite-cache hit rate.
 MANIFEST_VERSION = (
+    # v23: combines the v22 source-provenance manifest with the Weka no-fa
+    # conversation layout below. Cached manifests produced before v23 may still
+    # expose generic ::fa: / :fa: child conversations.
+    # v22: generic Weka flattened-agent chains are no longer emitted as
+    # separate ::fa: / :fa: child conversations. They merge back into the
+    # enclosing main/subagent timeline. Aux, aux:red, and wg sidecars remain
+    # separate children. Child conversation ids and root turn membership change.
     # v22: Weka source provenance now includes source_inner_idx for nested
     # subagent child requests. Cached manifests produced before v22 deserialize
     # with None for that field, so request exports cannot deep-link exact
@@ -147,7 +154,7 @@ MANIFEST_VERSION = (
     # v10: merge of the flattened-agent-splitting lineage and the
     # tool-shaping lineage (boundary-cut overhang strip; shaping decided at
     # first emission so reset re-emits reproduce the first-sent shape).
-    22
+    23
 )
 MANIFEST_FILENAME = "manifest.json"
 INPUTS_JSON_FILENAME = "inputs.json"
