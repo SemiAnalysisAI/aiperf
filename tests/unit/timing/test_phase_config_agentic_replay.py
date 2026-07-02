@@ -103,7 +103,17 @@ def test_cache_warmup_uses_strategy_controlled_stop() -> None:
     assert warmup is not None
     assert warmup.total_expected_requests is None
     assert warmup.agentic_cache_warmup_duration_sec == 600.0
-    assert warmup.grace_period_sec == 300.0
+    assert warmup.grace_period_sec == 600.0
+
+
+def test_cache_warmup_grace_defaults_to_cache_warmup_duration() -> None:
+    cfg = _ar_user_config(concurrency=10, benchmark_grace_period=None)
+    cfg.loadgen.agentic_cache_warmup_duration = 600.0
+
+    warmup = _build_warmup_config(cfg)
+
+    assert warmup is not None
+    assert warmup.grace_period_sec == 600.0
 
 
 def test_cache_warmup_grace_uses_short_duration_without_benchmark_grace() -> None:
