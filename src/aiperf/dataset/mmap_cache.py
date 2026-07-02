@@ -75,6 +75,11 @@ _logger = AIPerfLogger(__name__)
 # Version 5 fixed the Conversation.metadata() projection of per-turn
 # theoretical prefix-cache block counts for realtime infinite-cache hit rate.
 MANIFEST_VERSION = (
+    # v22: Weka source provenance now includes source_inner_idx for nested
+    # subagent child requests. Cached manifests produced before v22 deserialize
+    # with None for that field, so request exports cannot deep-link exact
+    # raw+inner source coordinates even though replay bytes are otherwise
+    # identical.
     # v21: Weka traces carry explicit api_time interval-frontier metadata in
     # DatasetMetadata (replay_scope_id + per-turn replay_predecessors). Cached
     # manifests produced before v21 deserialize with empty defaults, silently
@@ -142,7 +147,7 @@ MANIFEST_VERSION = (
     # v10: merge of the flattened-agent-splitting lineage and the
     # tool-shaping lineage (boundary-cut overhang strip; shaping decided at
     # first emission so reset re-emits reproduce the first-sent shape).
-    21
+    22
 )
 MANIFEST_FILENAME = "manifest.json"
 INPUTS_JSON_FILENAME = "inputs.json"
