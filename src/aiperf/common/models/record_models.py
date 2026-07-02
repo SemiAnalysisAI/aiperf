@@ -170,6 +170,14 @@ class MetricRecordMetadata(AIPerfBaseModel):
             "source_trace_id, when provided by the dataset loader."
         ),
     )
+    source_inner_idx: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Zero-based index within the nested source request list identified "
+            "by source_outer_idx, when provided by the dataset loader."
+        ),
+    )
     source_kind: str | None = Field(
         default=None,
         description=(
@@ -677,6 +685,14 @@ class RecordContext(AIPerfBaseModel):
         description=(
             "Zero-based index of the original top-level source request within "
             "source_trace_id, when provided by the dataset loader."
+        ),
+    )
+    source_inner_idx: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Zero-based index within the nested source request list identified "
+            "by source_outer_idx, when provided by the dataset loader."
         ),
     )
     source_kind: str | None = Field(

@@ -293,6 +293,7 @@ class InferenceClient(AIPerfLifecycleMixin):
             turn_index=request_info.turn_index,
             source_trace_id=request_info.source_trace_id,
             source_outer_idx=request_info.source_outer_idx,
+            source_inner_idx=request_info.source_inner_idx,
             source_kind=request_info.source_kind,
             x_request_id=request_info.x_request_id,
             x_correlation_id=request_info.x_correlation_id,

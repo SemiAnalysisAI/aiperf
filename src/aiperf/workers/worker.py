@@ -1098,6 +1098,7 @@ class Worker(BaseComponentService, ProcessHealthMixin):
             turn_index=session.turn_index if session else credit.turn_index,
             source_trace_id=source_turn.source_trace_id if source_turn else None,
             source_outer_idx=source_turn.source_outer_idx if source_turn else None,
+            source_inner_idx=source_turn.source_inner_idx if source_turn else None,
             source_kind=source_turn.source_kind if source_turn else None,
             turns=turns,
             drop_perf_ns=credit_context.drop_perf_ns,

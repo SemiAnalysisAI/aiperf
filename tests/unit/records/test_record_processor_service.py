@@ -136,6 +136,7 @@ class TestRecordProcessorCreateMetricRecordMetadata:
                 update={
                     "source_trace_id": "trace",
                     "source_outer_idx": 204,
+                    "source_inner_idx": 16,
                     "source_kind": "weka_flat",
                 }
             )
@@ -147,6 +148,7 @@ class TestRecordProcessorCreateMetricRecordMetadata:
 
         assert metadata.source_trace_id == "trace"
         assert metadata.source_outer_idx == 204
+        assert metadata.source_inner_idx == 16
         assert metadata.source_kind == "weka_flat"
 
 

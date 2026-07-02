@@ -59,6 +59,7 @@ class _WekaParentTurnDict(TypedDict):
     api_time_ms: float | None
     source_trace_id: str | None
     source_outer_idx: int | None
+    source_inner_idx: int | None
     source_kind: str | None
     model: str
     max_tokens: int
@@ -118,6 +119,7 @@ class _WekaNormalRequestPayload(TypedDict):
     input_kind: NotRequired[str | None]
     source_trace_id: NotRequired[str | None]
     source_outer_idx: NotRequired[int | None]
+    source_inner_idx: NotRequired[int | None]
     source_kind: NotRequired[str | None]
     # Only present in parent normals (not in child requests):
     capped_output_length: NotRequired[int]
@@ -453,6 +455,7 @@ def _process_task(task: _WekaTraceTask) -> _WekaProcessTaskResult:
                 else _api_time_ms(req.get("api_time")),
                 "source_trace_id": task.trace_id,
                 "source_outer_idx": outer_idx,
+                "source_inner_idx": None,
                 "source_kind": "weka_main",
                 "model": task.model_map.get(req["model"], req["model"]),
                 "max_tokens": req["capped_output_length"],
@@ -688,6 +691,7 @@ def _process_task(task: _WekaTraceTask) -> _WekaProcessTaskResult:
                         "source_trace_id", cp["parent_trace_id"]
                     ),
                     "source_outer_idx": creq.get("source_outer_idx"),
+                    "source_inner_idx": creq.get("source_inner_idx"),
                     "source_kind": creq.get("source_kind", "weka_subagent"),
                     "model": task.model_map.get(creq["model"], creq["model"]),
                     # Flat-chain children carry capped_output_length (their

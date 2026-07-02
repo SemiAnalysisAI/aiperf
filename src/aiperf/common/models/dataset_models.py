@@ -157,6 +157,15 @@ class TurnMetadata(AIPerfBaseModel):
             "raw top-level request."
         ),
     )
+    source_inner_idx: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Zero-based index within the nested source request list identified "
+            "by source_outer_idx. Set by Weka trace loaders for subagent child "
+            "requests."
+        ),
+    )
     source_kind: str | None = Field(
         default=None,
         description=(
@@ -258,6 +267,15 @@ class Turn(AIPerfBaseModel):
             "Zero-based index of the original top-level source request within "
             "source_trace_id. Set by Weka trace loaders for turns that map to a "
             "raw top-level request."
+        ),
+    )
+    source_inner_idx: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Zero-based index within the nested source request list identified "
+            "by source_outer_idx. Set by Weka trace loaders for subagent child "
+            "requests."
         ),
     )
     source_kind: str | None = Field(
@@ -379,6 +397,7 @@ class Turn(AIPerfBaseModel):
             api_time_ms=self.api_time_ms,
             source_trace_id=self.source_trace_id,
             source_outer_idx=self.source_outer_idx,
+            source_inner_idx=self.source_inner_idx,
             source_kind=self.source_kind,
             replay_predecessors=self.replay_predecessors,
             branch_ids=self.branch_ids,
