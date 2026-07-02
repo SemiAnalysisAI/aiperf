@@ -51,7 +51,7 @@ def _replay_scope_for_session(session_id: str, parent_trace_id: str) -> str:
         return parent_trace_id
     trace_id, suffix = session_id.split(marker, 1)
     agent_id = suffix
-    for worker_marker in (":aux:red:", ":aux:", ":fa:", ":wg:"):
+    for worker_marker in (":aux:", ":fa:", ":wg:"):
         if worker_marker in agent_id:
             agent_id = agent_id.rsplit(worker_marker, 1)[0]
     return f"{trace_id}{marker}{agent_id}"
@@ -344,19 +344,17 @@ def _worker_suffix(
     """Session-id suffix (marker + index) for a detected worker chain.
 
     Precedence: auxiliary classification wins over worker-group (a one-shot
-    sidecar is never a parallel agent). ``aux:red`` keeps reductions inside the
-    aux family (the ``:aux:`` substring still flags them) while distinguishing
-    them from fetch/size sidecars. A worker-group member carries its parallel-
-    fan-out coordinate as an underscore-joined value ``wg:{group}_{member}``
-    (``group`` = the fork-point fan-out it belongs to, ``member`` = index within
-    it; colon stays purely structural -- the coordinate is one value, like the
-    underscore-joined ``agent_id`` after an ``sa:`` key); ``fa`` is a solo agent.
-    ``n`` is the dense per-trace worker index used for the single-valued
-    markers."""
-    if is_aux:
+    sidecar is never a parallel agent). Reductions are emitted as normal
+    auxiliary sidecars because the distinction is classifier-internal and
+    should not leak into session ids. A worker-group member carries its
+    parallel-fan-out coordinate as an underscore-joined value
+    ``wg:{group}_{member}`` (``group`` = the fork-point fan-out it belongs to,
+    ``member`` = index within it; colon stays purely structural -- the
+    coordinate is one value, like the underscore-joined ``agent_id`` after an
+    ``sa:`` key); ``fa`` is a solo agent. ``n`` is the dense per-trace worker
+    index used for the single-valued markers."""
+    if is_aux or is_reduction:
         return f"aux:{n:03d}"
-    if is_reduction:
-        return f"aux:red:{n:03d}"
     if wg_coord is not None:
         group, member = wg_coord
         return f"wg:{group:03d}_{member:03d}"
@@ -387,7 +385,7 @@ class _ChildPlan:
     """Turn-0 system-prefix attribution for this chain (same gate)."""
     is_aux: bool = False
     """True when an overflow chain is an auxiliary one-shot sidecar (emitted as
-    ``:aux:NNN`` or ``:aux:red:NNN`` rather than the ``:fa:NNN`` agent marker).
+    ``:aux:NNN`` rather than the ``:fa:NNN`` agent marker).
     See :func:`weka_agent_chains.is_aux_chain` /
     :func:`weka_agent_chains.is_reduction_chain`. Always False for the main chain."""
 
@@ -526,11 +524,11 @@ def _expand_subagent_to_child_plans(
                 base_first_hash=main_first_hash,
                 chain_first_hash=first_hash,
             )
-            # Classify the overflow chain: a short, small-fresh-context or
-            # cross-model one-shot is the subagent's own sidecar (:aux:); a
-            # same-model large-in/short-out call is a reduction (:aux:red:); a
-            # member of a shared-spawn parallel group is a worker-group agent
-            # (:wg:); otherwise a nested agent (:fa:).
+            # Classify the overflow chain: a short, small-fresh-context,
+            # cross-model, or same-model large-in/short-out one-shot is the
+            # subagent's own sidecar (:aux:); a member of a shared-spawn
+            # parallel group is a worker-group agent (:wg:); otherwise a nested
+            # agent (:fa:).
             is_aux = is_aux_chain(
                 chain_requests,
                 main_peak_isl,
@@ -1324,8 +1322,8 @@ class WekaTraceLoader(HashIdsPromptSynthesisMixin, BaseFileLoader):
             )
             # Classify each worker chain: cross-model / small-fresh-context
             # one-shot -> sidecar (::aux:); same-model large-in/short-out
-            # one-shot -> reduction (::aux:red:); shared-spawn parallel group
-            # member -> worker-group agent (::wg:); otherwise solo agent
+            # one-shot -> reduction sidecar (::aux:); shared-spawn parallel
+            # group member -> worker-group agent (::wg:); otherwise solo agent
             # (::fa:). Aux/reduction win over worker-group.
             aux = is_aux_chain(
                 chain_reqs,
