@@ -145,11 +145,22 @@ class InferenceClient(AIPerfLifecycleMixin):
             # excluded by the dataset-load guard, so it is not handled here.
             endpoint = self.model_endpoint.endpoint
             if endpoint.use_dynamo_conv_aware_routing:
+                session_id = request_info.x_correlation_id
+                is_final_turn = request_info.is_final_turn
+                if endpoint.dynamo_session_affinity_scope == "lineage":
+                    root = request_info.root_correlation_id
+                    if root and root != request_info.x_correlation_id:
+                        # Child conversations share the lineage affinity key;
+                        # they must never close it while siblings may still
+                        # run, so only the root conversation's final turn
+                        # closes (the TTL reaper covers any leftovers).
+                        session_id = root
+                        is_final_turn = False
                 formatted_payload = merge_session_control(
                     formatted_payload,
                     build_session_control(
-                        session_id=request_info.x_correlation_id,
-                        is_final_turn=request_info.is_final_turn,
+                        session_id=session_id,
+                        is_final_turn=is_final_turn,
                         timeout_seconds=endpoint.dynamo_session_timeout_seconds,
                     ),
                 )

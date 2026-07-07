@@ -123,6 +123,10 @@ class EndpointInfo(AIPerfBaseModel):
         ge=1,
         description="Timeout in seconds for Dynamo nvext.session_control sessions.",
     )
+    dynamo_session_affinity_scope: str = Field(
+        default=EndpointDefaults.DYNAMO_SESSION_AFFINITY_SCOPE,
+        description="Scope of the Dynamo session affinity key ('conversation' or 'lineage').",
+    )
     connection_reuse_strategy: ConnectionReuseStrategy = Field(
         default=EndpointDefaults.CONNECTION_REUSE_STRATEGY,
         description="Transport connection reuse strategy.",
@@ -178,6 +182,9 @@ class EndpointInfo(AIPerfBaseModel):
             ),
             dynamo_session_timeout_seconds=(
                 user_config.endpoint.dynamo_session_timeout_seconds
+            ),
+            dynamo_session_affinity_scope=(
+                user_config.endpoint.dynamo_session_affinity_scope
             ),
             connection_reuse_strategy=user_config.endpoint.connection_reuse_strategy,
             download_video_content=user_config.endpoint.download_video_content,
