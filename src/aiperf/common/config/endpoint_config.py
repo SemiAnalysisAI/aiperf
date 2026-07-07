@@ -350,6 +350,24 @@ class EndpointConfig(BaseConfig):
         ),
     ] = EndpointDefaults.DYNAMO_SESSION_TIMEOUT_SECONDS
 
+    dynamo_session_affinity_scope: Annotated[
+        Literal["conversation", "lineage"],
+        Field(
+            description=(
+                "Scope of the Dynamo session affinity key when "
+                "--use-dynamo-conv-aware-routing is enabled. 'conversation' "
+                "(default) binds each conversation with its own id. 'lineage' "
+                "binds fork/spawn child conversations with the agent-tree root "
+                "id so the whole lineage co-locates with the shared parent "
+                "prefix (for deployments without KV-event prefix indexing)."
+            ),
+        ),
+        CLIParameter(
+            name=("--dynamo-session-affinity-scope",),
+            group=Groups.ENDPOINT,
+        ),
+    ] = EndpointDefaults.DYNAMO_SESSION_AFFINITY_SCOPE
+
     connection_reuse_strategy: Annotated[
         ConnectionReuseStrategy,
         Field(
