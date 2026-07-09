@@ -328,3 +328,33 @@ async def test_dispatch_join_turn_has_forks_false():
     )
     await issuer.dispatch_join_turn(pending)
     assert captured["turn"].has_forks is False
+
+
+@pytest.mark.asyncio
+async def test_dispatch_join_turn_stamps_has_branches_from_pending():
+    """The join seam must carry the gated turn's any-mode branch flag onto the
+    resumed TurnToSend, or a SPAWN-declaring join turn could stamp a wrong
+    is_tree_final=True while its children are pending."""
+    issuer = _make_issuer()
+    issuer.try_issue_credit = AsyncMock(return_value=True)
+    pending = PendingBranchJoin(
+        parent_x_correlation_id="corr-parent",
+        parent_conversation_id="conv-parent",
+        parent_num_turns=3,
+        gated_turn_index=2,
+        parent_has_branches_on_gated_turn=True,
+    )
+    await issuer.dispatch_join_turn(pending)
+
+    turn = issuer.try_issue_credit.await_args.args[0]
+    assert turn.has_branches is True
+
+    issuer.try_issue_credit.reset_mock()
+    pending_leaf = PendingBranchJoin(
+        parent_x_correlation_id="corr-parent",
+        parent_conversation_id="conv-parent",
+        parent_num_turns=3,
+        gated_turn_index=2,
+    )
+    await issuer.dispatch_join_turn(pending_leaf)
+    assert issuer.try_issue_credit.await_args.args[0].has_branches is False

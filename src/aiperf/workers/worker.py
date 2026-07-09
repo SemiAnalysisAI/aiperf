@@ -63,6 +63,7 @@ from aiperf.common.protocols import (
     RequestClientProtocol,
     StreamingDealerClientProtocol,
 )
+from aiperf.common.scenario import is_context_overflow_response
 from aiperf.credit.messages import (
     CancelCredits,
     CreditReturn,
@@ -74,7 +75,7 @@ from aiperf.credit.messages import (
 from aiperf.credit.structs import Credit, CreditContext
 from aiperf.dataset.protocols import DatasetClientStoreProtocol
 from aiperf.plugin import plugins
-from aiperf.plugin.enums import PluginType
+from aiperf.plugin.enums import PluginType, TimingMode
 from aiperf.records.payload_retention import resolve_strip_record_payload_bytes
 from aiperf.workers.inference_client import InferenceClient
 from aiperf.workers.session_manager import UserSession, UserSessionManager
@@ -84,6 +85,23 @@ if TYPE_CHECKING:
 
 
 _logger = AIPerfLogger(__name__)
+
+
+def _is_terminal_context_overflow(
+    credit: Credit, credit_context: CreditContext
+) -> bool:
+    """Whether this credit return ends the conversation via context overflow.
+
+    A context-overflow error on a non-final, non-cancelled turn is terminal:
+    agentic_replay recycles the lane and issues no further (final/cancel) credit
+    for the session, so the worker must treat it as a terminal disposition.
+    Mirrors the strategy's own ``terminal_overflow`` classification, applied to
+    the same error body the worker returns on the credit.
+    """
+    if credit.is_final_turn or credit_context.cancelled:
+        return False
+    error = credit_context.error
+    return error is not None and is_context_overflow_response(body=str(error))
 
 
 def _apply_cache_bust_to_system_message(
@@ -505,6 +523,15 @@ class Worker(BaseComponentService, ProcessHealthMixin):
 
         self.model_endpoint = ModelEndpointInfo.from_user_config(self.user_config)
 
+        # A mid-stream context overflow ends the conversation ONLY under
+        # agentic_replay (the strategy recycles the lane and issues no further
+        # credit for the session). Other strategies keep issuing the session's
+        # remaining turns after an overflow error, so treating it as terminal
+        # there would fire the routing plugin's post-session hook mid-session.
+        self._overflow_ends_session = (
+            self.user_config.timing_mode == TimingMode.AGENTIC_REPLAY
+        )
+
         self.inference_client: InferenceClient = InferenceClient(
             model_endpoint=self.model_endpoint,
             service_id=self.service_id,
@@ -712,6 +739,18 @@ class Worker(BaseComponentService, ProcessHealthMixin):
         self.execute_async(self.credit_dealer_client.send(credit_return))
         credit_context.returned = True
 
+        # Post-session hook for routing plugins: the cancel-before-start path
+        # is a terminal disposition the finally block in _process_credit never
+        # sees (the task died before it could run), so notify here too --
+        # gated on cancelled because the OTHER way to reach this branch (the
+        # finally block's CreditReturn send raised) is not terminal for a
+        # non-final turn, and for a final/cancelled turn the finally block
+        # already notified. Idempotent by contract.
+        if credit_context.cancelled and credit_context.credit is not None:
+            self.inference_client.notify_session_end(
+                credit_context.credit.x_correlation_id
+            )
+
         # Explicitly clear references to help refcounting (GC is disabled on workers)
         credit_context.credit = None
         credit_context.error = None
@@ -905,7 +944,22 @@ class Worker(BaseComponentService, ProcessHealthMixin):
             self.exception(f"Error processing credit: {e!r}")
         finally:
             if credit_context.credit.is_final_turn or credit_context.cancelled:
+                # Fire the routing plugin's post-session hook on ANY terminal
+                # outcome (final turn or cancel), not just a successful final
+                # turn, so stateful plugins release sessions abandoned
+                # mid-conversation. Idempotent by contract; no-op when session
+                # routing is unset.
+                self.inference_client.notify_session_end(x_correlation_id)
                 self.session_manager.evict(x_correlation_id)
+            elif self._overflow_ends_session and _is_terminal_context_overflow(
+                credit_context.credit, credit_context
+            ):
+                # Under agentic_replay a mid-stream context overflow ends the
+                # conversation without a final/cancel credit (the lane is
+                # recycled), so the routing plugin's post-session hook must
+                # fire here explicitly. Other strategies keep issuing the
+                # session's turns after an overflow, so this is gated off.
+                self.inference_client.notify_session_end(x_correlation_id)
 
     def _make_first_token_callback(
         self, credit_context: CreditContext
@@ -1111,6 +1165,8 @@ class Worker(BaseComponentService, ProcessHealthMixin):
             agent_depth=credit.agent_depth,
             parent_correlation_id=credit.parent_correlation_id,
             root_correlation_id=credit.effective_root_correlation_id,
+            is_parent_final=credit.is_parent_final,
+            is_tree_final=credit.is_tree_final,
             cache_bust_marker=credit.cache_bust_marker,
             cache_bust_target=credit.cache_bust_target
             if credit.cache_bust_marker is not None
@@ -1300,6 +1356,15 @@ class Worker(BaseComponentService, ProcessHealthMixin):
 
     @on_stop
     async def _worker_stop(self) -> None:
+        # Sessions still resident at shutdown (mid-conversation when the phase
+        # ended: sitting in think-time delay or a strategy continuation queue,
+        # so no in-flight credit existed for cancel_all_credits to cancel)
+        # never hit any per-credit terminal path. Fire the routing plugin's
+        # post-session hook for each so stateful plugins release them;
+        # idempotent by contract and a no-op when routing is unset.
+        for x_correlation_id in self.session_manager.live_session_ids():
+            self.inference_client.notify_session_end(x_correlation_id)
+
         # Clean up dataset client resources using protocol lifecycle
         if self._dataset_client is not None:
             dataset_client = self._dataset_client

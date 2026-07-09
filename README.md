@@ -200,7 +200,7 @@ Log File: /home/user/aiperf/artifacts/granite4:350m-openai-chat-concurrency1/log
 | [CLI Options](docs/cli-options.md) | Complete command and option reference |
 | [Metrics Reference](docs/metrics-reference.md) | All metric definitions, formulas, and requirements |
 | [Environment Variables](docs/environment-variables.md) | All `AIPERF_*` configuration variables |
-| [Plugin System](docs/plugins/plugin-system.md) | Plugin architecture, 27 categories, creation guide |
+| [Plugin System](docs/plugins/plugin-system.md) | Plugin architecture, 31 categories, creation guide |
 | [Creating Plugins](docs/plugins/creating-your-first-plugin.md) | Step-by-step plugin tutorial |
 | [Accuracy Benchmarks](docs/accuracy/accuracy_stubs.md) | Accuracy evaluation stubs and datasets |
 | [Benchmark Modes](docs/benchmark-modes/trace-replay.md) | Trace replay and timing modes |

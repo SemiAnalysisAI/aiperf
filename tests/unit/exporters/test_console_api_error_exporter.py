@@ -131,8 +131,11 @@ class TestDynamoSessionControlDetector:
         insight = DynamoSessionControlDetector.detect(make_summary(err))
 
         assert insight is not None
-        assert "bind" in insight.problem
-        assert any("--use-legacy-dynamo-session-control" in f for f in insight.fixes)
+        assert "bind" in insight.title
+        assert "session_control" in insight.problem
+        assert any("--session-routing dynamo_nvext" in c for c in insight.causes)
+        assert any("--session-routing" in f for f in insight.fixes)
+        assert not any("use-legacy" in f for f in insight.fixes)
 
     def test_detects_json_wrapped_unknown_variant_error(self):
         """The serde message is often wrapped in a JSON error envelope."""
@@ -165,6 +168,35 @@ class TestDynamoSessionControlDetector:
         assert DynamoSessionControlDetector.detect(None) is None
         assert DynamoSessionControlDetector.detect([]) is None
 
+    def test_detect_item_without_error_details_skipped_returns_none(self):
+        summary = [MockErrorDetailsCount(None, 1)]
+
+        assert DynamoSessionControlDetector.detect(summary) is None
+
+    def test_detect_none_message_returns_none(self):
+        summary = make_summary(MockErrorDetails(message=None))
+
+        assert DynamoSessionControlDetector.detect(summary) is None
+
+    def test_detects_unknown_field_session_control_error(self):
+        """Current Dynamo main (#[serde(deny_unknown_fields)] on NvExt) rejects
+        nvext.session_control as an unknown FIELD; recommend dynamo_headers."""
+        err = MockErrorDetails(
+            message="Failed to deserialize the JSON body: nvext: unknown field `session_control`"
+        )
+        insight = DynamoSessionControlDetector.detect(make_summary(err))
+        assert insight is not None
+        assert any("--session-routing dynamo_headers" in f for f in insight.fixes)
+
+    def test_bind_rejection_fixes_reference_new_flag(self):
+        err = MockErrorDetails(
+            message="unknown variant `bind`, expected `open` or `close`"
+        )
+        insight = DynamoSessionControlDetector.detect(make_summary(err))
+        assert insight is not None
+        assert not any("use-legacy" in f for f in insight.fixes)
+        assert any("--session-routing" in f for f in insight.fixes)
+
     @pytest.mark.asyncio
     async def test_exporter_prints_panel_for_bind_rejection(self):
         mock_console = MagicMock(spec=Console)
@@ -182,5 +214,7 @@ class TestDynamoSessionControlDetector:
         assert mock_console.print.call_count >= 2
         _, args, _ = mock_console.print.mock_calls[1]
         panel = args[0]
-        assert "session_control action: bind" in str(panel.title)
-        assert "--use-legacy-dynamo-session-control" in str(panel.renderable)
+        assert "Unsupported Dynamo session_control action: bind" in str(panel.title)
+        panel_text = str(panel.renderable)
+        assert "--session-routing" in panel_text
+        assert "use-legacy" not in panel_text

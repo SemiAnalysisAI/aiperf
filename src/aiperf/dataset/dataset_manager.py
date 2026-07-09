@@ -264,12 +264,13 @@ class DatasetManager(ReplyClientMixin, BaseComponentService):
         """Re-check the cache for a HIT after the populate lock is held."""
         assert self._cache_key_for_run is not None
         try:
-            return mmap_cache.lookup(
+            hit = mmap_cache.lookup(
                 self._cache_key_for_run, compressed=self._compress_only
             )
         except (OSError, ValueError) as e:
             self.warning(f"Cache re-lookup under lock failed: {e!r}")
             return None
+        return self._downgrade_body_mutator_cache_hit(hit)
 
     async def _configure_dataset_client_and_free_memory(self) -> None:
         """Configure the dataset client for serving fallback requests, then free memory."""
@@ -414,13 +415,15 @@ class DatasetManager(ReplyClientMixin, BaseComponentService):
         if self.user_config is None:
             return
 
-        # Cache-bust dispatch (worker.py `_process_credit_with_session`) mutates
-        # `session_message`/`raw_messages` per credit; the PAYLOAD_BYTES fast
-        # path early-returns before that dispatch, sending pre-encoded mmap
-        # bytes to the wire verbatim. Pre-formatting under cache-bust would
-        # silently no-op the marker injection. Bail to the structured-turns
-        # path whenever cache-bust is enabled.
-        if self.user_config.input.prompt.cache_bust.target != CacheBustTarget.NONE:
+        # Body mutators (cache-bust marker injection, a body-mutating
+        # session-routing mode like dynamo_nvext) rewrite the request body per
+        # credit; the PAYLOAD_BYTES fast path early-returns before that
+        # dispatch, sending pre-encoded mmap bytes to the wire verbatim.
+        # Pre-formatting would either silently no-op the mutation or trip the
+        # _select_mmap_format refusal on a dataset that is perfectly usable as
+        # structured turns. Bail to the structured-turns path whenever any
+        # body-mutating feature is active.
+        if self._body_mutating_feature() is not None:
             return
 
         # DAG datasets (any FORK/SPAWN branch) are delta-compressed and
@@ -476,8 +479,51 @@ class DatasetManager(ReplyClientMixin, BaseComponentService):
 
         self.info(f"Pre-formatted {count} payloads for payload mmap fast path")
 
+    def _body_mutating_feature(self) -> str | None:
+        """Name of the active body-mutating feature, or None.
+
+        Both PAYLOAD_BYTES gates (build-path format selection and cache-hit
+        adoption) key off this: the mmap cache key deliberately excludes
+        cache-bust and routing settings, so the cache-hit gate cannot be
+        skipped (a feature-free run's PAYLOAD_BYTES entry is a valid hit for
+        a feature-enabled run).
+        """
+        if self.user_config is None:
+            return None
+        mode = self.user_config.endpoint.session_routing
+        if mode is not None:
+            routing_cls = plugins.get_class(PluginType.SESSION_ROUTING, str(mode))
+            if routing_cls.mutates_body:
+                return f"session-routing mode {str(mode)!r}"
+        if self.user_config.input.prompt.cache_bust.target != CacheBustTarget.NONE:
+            return "cache-bust"
+        return None
+
+    def _reject_body_mutators_for_payload_bytes(
+        self, mmap_format: MemoryMapFormat | str
+    ) -> None:
+        """Refuse a cached PAYLOAD_BYTES dataset when a body-mutator is active.
+
+        Defense-in-depth behind ``_downgrade_body_mutator_cache_hit``: promoted
+        entries are already treated as a MISS at lookup, so a HIT that reaches
+        here carries source-loaded payload bytes (the dataset itself ships
+        pre-encoded bodies), which a rebuild cannot fix. Guarded at the shared
+        restore path so both cache-hit call sites are covered.
+        """
+        if MemoryMapFormat(mmap_format) != MemoryMapFormat.PAYLOAD_BYTES:
+            return
+        feature = self._body_mutating_feature()
+        if feature is not None:
+            raise ValueError(
+                f"{feature} must mutate request bodies and is incompatible with "
+                "this cached PAYLOAD_BYTES dataset (its payload bytes are shipped "
+                "verbatim by the dataset itself). Choose a headers-based routing "
+                "mode / disable cache-bust, or use a dataset type that produces "
+                "structured turns (e.g. single_turn / multi_turn / dag_jsonl)."
+            )
+
     def _select_mmap_format(self, conversations: list[Conversation]) -> MemoryMapFormat:
-        """Pick the dataset mmap format and refuse PAYLOAD_BYTES under cache-bust.
+        """Pick the dataset mmap format and refuse PAYLOAD_BYTES for body-mutators.
 
         This is the earliest authoritative point in the loader where the
         run's ``MemoryMapFormat`` is finalized -- it runs once after dataset
@@ -485,13 +531,14 @@ class DatasetManager(ReplyClientMixin, BaseComponentService):
         per-fork / per-dataset preformat decisions have happened yet.
 
         PAYLOAD_BYTES is the mmap fast path: workers stream pre-encoded
-        bytes verbatim and skip the cache-bust dispatch in
+        bytes verbatim and skip the per-credit dispatch in
         ``_process_credit_with_session``. Loaders that natively populate
         ``Turn.raw_payload`` (RawPayloadDatasetLoader, InputsJsonPayloadLoader,
         and MooncakeTraceDatasetLoader entries with a ``payload`` field)
-        would otherwise silently bypass the marker injection. Refuse here
-        with a clear, actionable error rather than letting the worker
-        discover the conflict at runtime.
+        would otherwise silently bypass cache-bust marker injection or a
+        body-mutating routing mode (e.g. Dynamo nvext.session_control).
+        Refuse here with a clear, actionable error rather than letting the
+        worker discover the conflict at runtime.
         """
         has_payload_bytes = any(
             turn.raw_payload is not None
@@ -507,33 +554,13 @@ class DatasetManager(ReplyClientMixin, BaseComponentService):
                 "Mixed raw_payload state: all turns must have raw_payload "
                 "when any turn does (PAYLOAD_BYTES format requires uniformity)"
             )
-        if (
-            has_payload_bytes
-            and self.user_config is not None
-            and self.user_config.input.prompt.cache_bust.target != CacheBustTarget.NONE
-        ):
+        feature = self._body_mutating_feature()
+        if has_payload_bytes and feature is not None:
             raise ValueError(
-                "--cache-bust is incompatible with the PAYLOAD_BYTES mmap "
-                "fast path. The selected dataset (raw_payload / inputs_json "
-                "/ mooncake_trace with payload field) ships pre-encoded bytes "
-                "verbatim and bypasses the per-credit cache-bust marker "
-                "injection. Either remove --cache-bust, or use a dataset "
-                "type that produces structured turns "
-                "(e.g. single_turn / multi_turn / dag_jsonl)."
-            )
-        if (
-            has_payload_bytes
-            and self.user_config is not None
-            and self.user_config.endpoint.use_dynamo_conv_aware_routing
-        ):
-            raise ValueError(
-                "--use-dynamo-conv-aware-routing is incompatible with the "
-                "PAYLOAD_BYTES mmap fast path. The selected dataset (raw_payload "
-                "/ inputs_json / mooncake_trace with payload field) ships "
-                "pre-encoded bytes verbatim, so nvext.session_control cannot be "
-                "injected. Either disable Dynamo conversation-aware routing, or "
-                "use a dataset type that produces structured turns "
-                "(e.g. single_turn / multi_turn / dag_jsonl)."
+                f"{feature} must mutate request bodies and is incompatible with the "
+                "verbatim PAYLOAD_BYTES mmap fast path. Choose a headers-based "
+                "routing mode / disable cache-bust, or use a dataset type that "
+                "produces structured turns (e.g. single_turn / multi_turn / dag_jsonl)."
             )
         return (
             MemoryMapFormat.PAYLOAD_BYTES
@@ -821,10 +848,40 @@ class DatasetManager(ReplyClientMixin, BaseComponentService):
             return None
         self._cache_key_for_run = key
         try:
-            return mmap_cache.lookup(key, compressed=self._compress_only)
+            hit = mmap_cache.lookup(key, compressed=self._compress_only)
         except Exception as e:
             self.warning(f"Skipping mmap cache lookup: {e!r}")
             return None
+        return self._downgrade_body_mutator_cache_hit(hit)
+
+    def _downgrade_body_mutator_cache_hit(
+        self, hit: mmap_cache.CacheHit | None
+    ) -> mmap_cache.CacheHit | None:
+        """Treat a preformat-promoted PAYLOAD_BYTES HIT as a MISS under a body-mutator.
+
+        The cache key deliberately excludes routing/cache-bust settings, so a
+        feature-free run's PAYLOAD_BYTES entry is a valid HIT for a
+        feature-enabled run. Entries promoted by ``_preformat_payloads``
+        (``all_turns_source_loaded_payloads=False``) can simply be rebuilt: with
+        the feature active the preformatter bails, so the rebuild stays on the
+        structured CONVERSATION path and succeeds. Entries whose payload bytes
+        came from the dataset itself keep the hard-fail in
+        ``_reject_body_mutators_for_payload_bytes`` (a rebuild cannot help).
+        """
+        if hit is None:
+            return None
+        if MemoryMapFormat(hit.manifest.mmap_format) != MemoryMapFormat.PAYLOAD_BYTES:
+            return hit
+        if hit.manifest.all_turns_source_loaded_payloads:
+            return hit
+        feature = self._body_mutating_feature()
+        if feature is None:
+            return hit
+        self.info(
+            f"Ignoring PAYLOAD_BYTES mmap cache entry built without {feature}; "
+            "rebuilding on the structured-turns path."
+        )
+        return None
 
     async def _configure_from_cache_hit(self, hit: mmap_cache.CacheHit) -> None:
         """Restore mmap files + metadata from a cache HIT, then init backing store.
@@ -833,6 +890,8 @@ class DatasetManager(ReplyClientMixin, BaseComponentService):
         rest of the pipeline (backing-store cleanup, worker mmap reads, k8s
         download) sees byte-identical files to a non-cached run.
         """
+        self._reject_body_mutators_for_payload_bytes(hit.manifest.mmap_format)
+
         run_data_path, run_index_path = self._run_mmap_paths()
         mmap_cache.restore_to_run_dir(hit, run_data_path, run_index_path)
 
@@ -894,6 +953,14 @@ class DatasetManager(ReplyClientMixin, BaseComponentService):
     def _populate_cache_after_run(self) -> None:
         """Write the just-finalized run's mmap files into the cache."""
         if self._cache_hit_used:
+            return
+        # The cache key deliberately excludes routing/cache-bust settings, so
+        # an entry written by THIS run is a valid HIT for feature-free runs of
+        # the same dataset. A body-mutator run built CONVERSATION only because
+        # the preformat bailed -- caching that would pin the shared key to the
+        # slow path and silently demote every later feature-free run off
+        # PAYLOAD_BYTES. Leave the key for a feature-free run to populate.
+        if self._body_mutating_feature() is not None:
             return
         if self._cache_key_for_run is None or self._backing_store is None:
             return

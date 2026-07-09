@@ -72,6 +72,12 @@ class Credit(
     ``agent_depth``.
     """
     has_forks: bool = False
+    is_parent_final: bool | None = None
+    """Parent conversation had already returned its final turn at issue time.
+    None for roots / when not determinable. Issue-time stamp, never copied."""
+    is_tree_final: bool = False
+    """Provably the last request the whole session tree will send (conservative
+    False when indeterminate). Issue-time stamp from SessionTreeRegistry."""
     branch_mode: ConversationBranchMode = ConversationBranchMode.FORK
     """DAG branch mode for this credit. Ignored when parent_correlation_id is None
     (i.e. for root sessions). FORK = inherit parent turn_list; SPAWN =
@@ -169,6 +175,14 @@ class TurnToSend(Struct, frozen=True):
     session start regardless of this flag. A mid-trace session start can only
     legitimately occur during a phase's initial dispatch (execute_phase)."""
     has_forks: bool = False
+    has_branches: bool = False
+    """True iff the originating turn declares ANY branch (FORK or SPAWN) in its
+    metadata ``branch_ids``. Superset of ``has_forks``, which is FORK-only and
+    owned by the sticky router's deferred-eviction logic -- do not conflate the
+    two. Consumed by finality stamping: a turn that will spawn descendants on
+    its return can never be the tree's provably-last request, even when the
+    registry shows nothing outstanding yet (SPAWN children register only at
+    return-intercept, AFTER issue-time stamping)."""
     branch_mode: ConversationBranchMode = ConversationBranchMode.FORK
 
     cache_bust_marker: str | None = None
@@ -200,7 +214,10 @@ class TurnToSend(Struct, frozen=True):
             credit: The previous turn's credit.
             next_meta: Metadata for the NEW turn being built. When provided, the
                 ``has_forks`` flag is derived from it so the sticky
-                router can defer parent-entry eviction until DAG children drain.
+                router can defer parent-entry eviction until DAG children drain,
+                and ``has_branches`` (any-mode) is derived from its
+                ``branch_ids`` so finality stamping stays conservative on
+                spawning turns.
         """
         return cls(
             conversation_id=credit.conversation_id,
@@ -212,6 +229,7 @@ class TurnToSend(Struct, frozen=True):
             root_correlation_id=credit.root_correlation_id,
             counts_toward_phase_target=credit.counts_toward_phase_target,
             has_forks=next_meta.has_forks if next_meta is not None else False,
+            has_branches=bool(next_meta.branch_ids) if next_meta is not None else False,
             branch_mode=credit.branch_mode,
             cache_bust_marker=credit.cache_bust_marker,
             cache_bust_target=credit.cache_bust_target,

@@ -1488,8 +1488,9 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
 
         ``TrajectorySource`` constructs each timestamped lane once and is
         shared across WARMUP and PROFILING. Reusing that realized graph keeps
-        every continuing root and subagent on the same ``X-Session-ID`` across
-        the phase boundary.
+        every continuing root and subagent on the same ``x_correlation_id``
+        across the phase boundary (and therefore on the same affinity header
+        when a ``--session-routing`` header mode is active).
         """
         assert trajectory.snapshot is not None
         return trajectory.snapshot

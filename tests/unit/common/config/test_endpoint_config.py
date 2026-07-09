@@ -26,18 +26,9 @@ def test_endpoint_config_defaults():
     assert config.custom_endpoint == EndpointDefaults.CUSTOM_ENDPOINT
     assert config.streaming == EndpointDefaults.STREAMING
     assert config.url == EndpointDefaults.URL
-    assert (
-        config.use_dynamo_conv_aware_routing
-        == EndpointDefaults.USE_DYNAMO_CONV_AWARE_ROUTING
-    )
-    assert (
-        config.use_legacy_dynamo_session_control
-        == EndpointDefaults.USE_LEGACY_DYNAMO_SESSION_CONTROL
-    )
-    assert (
-        config.dynamo_session_timeout_seconds
-        == EndpointDefaults.DYNAMO_SESSION_TIMEOUT_SECONDS
-    )
+    assert config.session_routing is None
+    assert config.session_routing_opt == []
+    assert config.session_routing_opts == {}
 
 
 def test_endpoint_config_custom_values():
@@ -61,9 +52,6 @@ def test_endpoint_config_custom_values():
         "urls": ["http://custom-url"],
         "timeout_seconds": 10,
         "api_key": "custom_api_key",
-        "use_dynamo_conv_aware_routing": True,
-        "use_legacy_dynamo_session_control": True,
-        "dynamo_session_timeout_seconds": 123,
     }
     config = EndpointConfig(**custom_values)
     for key, value in custom_values.items():
@@ -226,29 +214,55 @@ class TestWaitForModelValidation:
             )
 
 
-class TestDynamoSessionControlValidation:
-    """Coherence between the conv-aware-routing flag and its legacy modifier."""
+class TestSessionRoutingValidation:
+    """Fail-fast and canonicalization of --session-routing / --session-routing-opt."""
 
-    def test_legacy_without_master_flag_rejected(self):
-        """The legacy modifier has no meaning unless routing is enabled."""
-        with pytest.raises(ValueError, match="use-legacy-dynamo-session-control"):
+    def test_opts_without_mode_rejected(self):
+        """Opts have no meaning unless a routing mode is selected."""
+        with pytest.raises(ValueError, match="--session-routing-opt requires"):
             EndpointConfig(
                 model_names=["gpt2"],
-                use_legacy_dynamo_session_control=True,
+                session_routing_opt=["timeout_seconds=600"],
             )
 
-    def test_legacy_with_master_flag_allowed(self):
+    def test_mode_with_opts_canonicalized(self):
+        """Opt values are coerced to the plugin Options model types."""
         config = EndpointConfig(
             model_names=["gpt2"],
-            use_dynamo_conv_aware_routing=True,
-            use_legacy_dynamo_session_control=True,
+            session_routing="dynamo_nvext",
+            session_routing_opt=["timeout_seconds=600"],
         )
-        assert config.use_legacy_dynamo_session_control
+        assert config.session_routing_opts == {"timeout_seconds": 600}
 
-    def test_master_flag_alone_allowed(self):
-        """Conv-aware routing without the legacy modifier is the modern default."""
+    def test_mode_alone_allowed(self):
+        """A parameterless mode needs no opts."""
         config = EndpointConfig(
             model_names=["gpt2"],
-            use_dynamo_conv_aware_routing=True,
+            session_routing="dynamo_headers",
         )
-        assert not config.use_legacy_dynamo_session_control
+        assert config.session_routing_opts == {}
+
+    def test_unknown_opt_key_rejected(self):
+        """Unknown keys are rejected by the plugin's extra='forbid' Options model."""
+        with pytest.raises(ValueError):
+            EndpointConfig(
+                model_names=["gpt2"],
+                session_routing="dynamo_headers",
+                session_routing_opt=["bogus=1"],
+            )
+
+    def test_malformed_opt_rejected(self):
+        with pytest.raises(ValueError, match="expected non-empty key=value"):
+            EndpointConfig(
+                model_names=["gpt2"],
+                session_routing="dynamo_nvext",
+                session_routing_opt=["timeout_seconds"],
+            )
+
+    def test_duplicate_opt_key_rejected(self):
+        with pytest.raises(ValueError, match="Duplicate --session-routing-opt"):
+            EndpointConfig(
+                model_names=["gpt2"],
+                session_routing="dynamo_nvext",
+                session_routing_opt=["timeout_seconds=1", "timeout_seconds=2"],
+            )

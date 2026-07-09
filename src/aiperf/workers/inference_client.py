@@ -20,10 +20,7 @@ from aiperf.common.models import (
 from aiperf.common.redact import redact_headers
 from aiperf.plugin import plugins
 from aiperf.plugin.enums import PluginType
-from aiperf.workers.dynamo_session_control import (
-    build_session_control,
-    merge_session_control,
-)
+from aiperf.workers.session_routing import RoutingContext, SessionRoutingBase
 
 if TYPE_CHECKING:
     from aiperf.transports.base_transports import FirstTokenCallback
@@ -76,14 +73,54 @@ class InferenceClient(AIPerfLifecycleMixin):
         # Resolved by the worker via record payload-retention auto-detection.
         self.strip_record_payload_bytes = strip_record_payload_bytes
 
-        # Legacy Dynamo session_control only: session_ids this worker has already
-        # sent an 'open' for. 'open' is not idempotent and must be sent exactly
-        # once on the first request the worker makes for a session -- which under
-        # agentic replay is the WARMUP turn (k_i), not turn_index 0. The
-        # StickyCreditRouter pins every turn of a session (warmup + profiling) to
-        # one worker, so this per-process set sees them all. Entries are dropped
-        # on 'close' to bound the set to in-flight sessions.
-        self._dynamo_opened_sessions: set[str] = set()
+        # Session-routing plugin (selected via --session-routing): one instance
+        # per worker, invoked at the request-serialization chokepoint to stamp
+        # per-session identity (headers and/or body). None when routing is off.
+        self._routing: SessionRoutingBase | None = None
+        self._routing_mode: str | None = None
+        # Per-request capability flags resolved once at init: a header-only
+        # plugin inherits the base transform_body and a body-only plugin
+        # inherits the base headers -- calling the no-op (plus the empty-dict
+        # merge) costs ~75ns/request, skipped via these flags (measured).
+        self._routing_stamps_headers = False
+        self._routing_transforms_body = False
+        endpoint_info = model_endpoint.endpoint
+        if endpoint_info.session_routing is not None:
+            routing_cls = plugins.get_class(
+                PluginType.SESSION_ROUTING, endpoint_info.session_routing
+            )
+            self._routing = routing_cls(
+                routing_cls.Options(**endpoint_info.session_routing_opts)
+            )
+            self._routing_mode = endpoint_info.session_routing
+            # Class-level override OR instance-level binding (a plugin may
+            # select a strategy by assigning self.headers/self.transform_body
+            # in __init__) both count as capabilities.
+            instance_attrs = vars(self._routing)
+            self._routing_stamps_headers = (
+                "headers" in instance_attrs
+                or type(self._routing).headers is not SessionRoutingBase.headers
+            )
+            self._routing_transforms_body = (
+                "transform_body" in instance_attrs
+                or type(self._routing).transform_body
+                is not SessionRoutingBase.transform_body
+            )
+            # Fail fast on a split-brain plugin: every PAYLOAD_BYTES gate keys
+            # off the declarative mutates_body ClassVar, while the transform is
+            # invoked via this structural capability flag. If they disagree, a
+            # transform silently never fires on fast-path datasets (or runs are
+            # forced off the fast path for nothing) -- reject at worker init
+            # instead of shipping unrouted bodies.
+            if self._routing_transforms_body != self._routing.mutates_body:
+                raise ValueError(
+                    f"session-routing plugin {self._routing_mode!r} is "
+                    f"inconsistent: transform_body "
+                    f"{'overridden' if self._routing_transforms_body else 'not overridden'} "
+                    f"but mutates_body={self._routing.mutates_body}. A plugin "
+                    "must declare mutates_body=True if and only if it "
+                    "implements transform_body."
+                )
 
         # Detect and set transport type if not explicitly set
         if not model_endpoint.transport:
@@ -101,6 +138,28 @@ class InferenceClient(AIPerfLifecycleMixin):
         )
         self.transport = TransportClass(model_endpoint=self.model_endpoint)
         self.attach_child_lifecycle(self.transport)
+
+    def notify_session_end(self, x_correlation_id: str) -> None:
+        """Post-session pass-through to the routing plugin (idempotent hook).
+
+        Called by the worker terminal-eviction path on ANY terminal outcome
+        (final turn, cancellation, terminal context overflow, cancel-before-
+        start). Idempotency is the plugin's responsibility -- this hook does not
+        dedupe. No-op when session routing is unset.
+
+        A plugin exception is logged (naming the plugin and session) and
+        swallowed: this cleanup hook must never break the worker's core
+        session-eviction lifecycle.
+        """
+        if self._routing is None:
+            return
+        try:
+            self._routing.on_session_end(x_correlation_id)
+        except Exception as e:
+            self.warning(
+                f"session-routing plugin {self._routing_mode!r} on_session_end "
+                f"failed for session {x_correlation_id!r}; continuing eviction: {e!r}"
+            )
 
     async def _send_request_to_transport(
         self,
@@ -126,11 +185,49 @@ class InferenceClient(AIPerfLifecycleMixin):
         """
         request_info.endpoint_headers = self.endpoint.get_endpoint_headers(request_info)
         request_info.endpoint_params = self.endpoint.get_endpoint_params(request_info)
+
+        # Session-routing chokepoint: build the per-request routing context once
+        # and let the plugin stamp its headers now (merged onto the endpoint
+        # headers). The same context feeds the structured body transform below.
+        # The capability flags skip the no-op base headers()/transform_body()
+        # calls entirely for plugins that don't override them.
+        routing_ctx: RoutingContext | None = None
+        if self._routing_stamps_headers or self._routing_transforms_body:
+            routing_ctx = RoutingContext(
+                x_correlation_id=request_info.x_correlation_id,
+                parent_correlation_id=request_info.parent_correlation_id,
+                root_correlation_id=request_info.root_correlation_id,
+                is_final_turn=request_info.is_final_turn,
+                is_parent_final=request_info.is_parent_final,
+                is_tree_final=request_info.is_tree_final,
+            )
+            if self._routing_stamps_headers:
+                # Attribute a plugin fault to the routing plugin (not the
+                # server): this raise is caught by _send_request_internal and
+                # becomes an error record whose message names the plugin
+                # instead of the endpoint.
+                try:
+                    routing_headers = self._routing.headers(routing_ctx)
+                except Exception as e:
+                    raise RuntimeError(
+                        f"session-routing plugin {self._routing_mode!r} failed in headers(): {e!r}"
+                    ) from e
+                request_info.endpoint_headers.update(routing_headers)
+
         if request_info.payload_bytes is not None:
             # PAYLOAD_BYTES fast path: bytes were validated at dataset-load time
-            # by the mmap loader / DatasetManager, and body-mutating features
-            # (cache-bust, Dynamo session_control) are refused against this
-            # verbatim-bytes path at dataset load, so nothing is injected here.
+            # by the mmap loader / DatasetManager. A body-mutating routing plugin
+            # cannot rewrite opaque bytes without a reparse/redump that defeats
+            # the fast path, so it is refused here (the raise is converted to an
+            # error record by _send_request_internal). Header-based routing is
+            # compatible and was already applied above.
+            if self._routing is not None and self._routing.mutates_body:
+                raise ValueError(
+                    f"session-routing mode "
+                    f"{self.model_endpoint.endpoint.session_routing!r} mutates "
+                    "request bodies and is incompatible with the verbatim PAYLOAD_BYTES "
+                    "fast path; choose a headers-based mode or a structured-turn dataset."
+                )
             formatted_payload = request_info.payload_bytes
         else:
             current_turn = request_info.turns[-1] if request_info.turns else None
@@ -138,32 +235,23 @@ class InferenceClient(AIPerfLifecycleMixin):
                 formatted_payload = current_turn.raw_payload
             else:
                 formatted_payload = self.endpoint.format_payload(request_info)
-            # Dynamo conversation-aware routing (opt-in): overlay
-            # nvext.session_control onto the structured request body. Done here,
-            # after the endpoint built the dict, so it is endpoint-agnostic and
-            # never mutates a cached Turn. The verbatim PAYLOAD_BYTES path is
-            # excluded by the dataset-load guard, so it is not handled here.
-            endpoint = self.model_endpoint.endpoint
-            if endpoint.use_dynamo_conv_aware_routing:
-                session_id = request_info.x_correlation_id
-                legacy = endpoint.use_legacy_dynamo_session_control
-                session_control = build_session_control(
-                    session_id=session_id,
-                    is_final_turn=request_info.is_final_turn,
-                    timeout_seconds=endpoint.dynamo_session_timeout_seconds,
-                    legacy=legacy,
-                    already_opened=session_id in self._dynamo_opened_sessions,
-                )
-                # Track the open/close lifecycle so legacy 'open' is sent exactly
-                # once per session (modern 'bind' is stateless and ignores this).
-                if legacy:
-                    if session_control.get("action") == "open":
-                        self._dynamo_opened_sessions.add(session_id)
-                    elif request_info.is_final_turn:
-                        self._dynamo_opened_sessions.discard(session_id)
-                formatted_payload = merge_session_control(
-                    formatted_payload, session_control
-                )
+            # Body-based session routing (e.g. Dynamo nvext.session_control):
+            # overlay onto the structured body after the endpoint built the dict,
+            # so it is endpoint-agnostic and never mutates a cached Turn
+            # (transform_body returns a copy).
+            if (
+                routing_ctx is not None
+                and self._routing_transforms_body
+                and isinstance(formatted_payload, dict)
+            ):
+                try:
+                    formatted_payload = self._routing.transform_body(
+                        formatted_payload, routing_ctx
+                    )
+                except Exception as e:
+                    raise RuntimeError(
+                        f"session-routing plugin {self._routing_mode!r} failed in transform_body(): {e!r}"
+                    ) from e
         # Canonicalise to bytes and stash on request_info. Two wins: (1) the
         # transport skips its own orjson.dumps on the dict path, (2) the
         # record processor can drop request_info.turns before the ZMQ hop

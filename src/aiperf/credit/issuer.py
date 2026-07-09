@@ -192,6 +192,33 @@ class CreditIssuer:
                 turn.effective_root_correlation_id, self._phase, root_pending=True
             )
 
+    def _finality_for_issue(self, turn: TurnToSend) -> tuple[bool | None, bool]:
+        """Issue-time lineage finality from ``SessionTreeRegistry`` state.
+
+        Conservative by spec: returns ``None``/``False`` whenever indeterminate
+        (including the non-agentic path where no registry is engaged).
+        """
+        registry = self._session_tree_registry
+        if registry is None:
+            return None, False
+        root_id = turn.effective_root_correlation_id
+        is_root = turn.parent_correlation_id is None
+        is_parent_final: bool | None = None
+        if not is_root and turn.parent_correlation_id == root_id:
+            # v1: parent finality is determinable only when the parent IS the
+            # root (the registry tracks per-tree, not per-intermediate-node).
+            is_parent_final = registry.root_terminal(root_id)
+        is_tree_final = registry.is_last_tree_request(
+            root_id,
+            is_final_turn=turn.is_final_turn,
+            is_root_credit=is_root,
+            # Any-mode branch flag, NOT the FORK-only has_forks: a final turn
+            # declaring SPAWN branches spawns descendants at return-intercept,
+            # after this stamp, so it must never read as tree-final.
+            has_branches=turn.has_branches,
+        )
+        return is_parent_final, is_tree_final
+
     def release_lane_credit(self) -> None:
         """Release a session slot directly (legacy / non-registry path).
 
@@ -359,6 +386,8 @@ class CreditIssuer:
             else None
         )
 
+        is_parent_final, is_tree_final = self._finality_for_issue(turn)
+
         credit = Credit(
             id=credit_index,
             phase=self._phase,
@@ -374,6 +403,8 @@ class CreditIssuer:
             root_correlation_id=turn.root_correlation_id,
             counts_toward_phase_target=turn.counts_toward_phase_target,
             has_forks=turn.has_forks,
+            is_parent_final=is_parent_final,
+            is_tree_final=is_tree_final,
             branch_mode=turn.branch_mode,
             cache_bust_marker=turn.cache_bust_marker,
             cache_bust_target=turn.cache_bust_target,
@@ -487,6 +518,7 @@ class CreditIssuer:
             # the sampled root plan and counts.
             counts_toward_phase_target=pending.parent_agent_depth == 0,
             has_forks=pending.parent_has_forks_on_gated_turn,
+            has_branches=pending.parent_has_branches_on_gated_turn,
             branch_mode=pending.parent_branch_mode,
             cache_bust_marker=pending.parent_cache_bust_marker,
             cache_bust_target=pending.parent_cache_bust_target,

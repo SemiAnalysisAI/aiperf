@@ -266,21 +266,15 @@ Use the legacy 'max_tokens' field instead of 'max_completion_tokens' in request 
 Use server-reported token counts from API usage fields instead of client-side tokenization. When enabled, tokenizers are still loaded (needed for dataset generation) but tokenizer.encode() is not called for computing metrics. Token count fields will be None if the server does not provide usage information. For OpenAI-compatible streaming endpoints (chat/completions), stream_options.include_usage is automatically configured when this flag is enabled. Recommended whenever the AIPerf tokenizer can disagree with the server's tokenizer (e.g. unmatched tokenizer revision, vendor-specific BPE merges, or chat templates that differ from the server) — this most often shows up as an output sequence length (OSL) mismatch even when the server is honoring the request (e.g. with ignore_eos=true).
 <br/>_Flag (no value required)_
 
-#### `--use-dynamo-conv-aware-routing`, `--use-dynamo-session-control`
+#### `--session-routing` `<str>`
 
-Emit Dynamo nvext.session_control in OpenAI-compatible request bodies so Dynamo can bind all turns from the same replayed conversation lineage to the same backend worker. This is only intended for Dynamo frontends that implement session_control.
-<br/>_Flag (no value required)_
+Session-aware routing mode: stamps per-session identity on every request for router affinity. Presets: dynamo_headers (X-Dynamo-Session-ID + parent header), smg_routing_key (X-SMG-Routing-Key for the SGLang Model Gateway manual policy), session_id_header (additive X-Session-ID). Generic: identity_headers (any name(s) per identity tier -- session/parent/root -- via --session-routing-opt). Body-based: dynamo_nvext (nvext.session_control bind/close request-body metadata; --session-routing-opt timeout_seconds=N).
+<br/>_Choices: [`dynamo_headers`, `dynamo_nvext`, `smg_routing_key`, `session_id_header`, `identity_headers`]_
 
-#### `--use-legacy-dynamo-session-control`
+#### `--session-routing-opt` `<list>`
 
-Emit the legacy Dynamo nvext.session_control lifecycle that released Dynamo (v1.2.x) understands: action 'open' on the first turn, session_id only on intermediate turns, and action 'close' on the final turn. Use this when the target Dynamo predates the 'bind' action (added in v1.3.0-dev); otherwise 'bind' is rejected with an HTTP 400. Requires --use-dynamo-conv-aware-routing, and the Dynamo deployment must expose a worker session_control endpoint for 'open' to take effect.
-<br/>_Flag (no value required)_
-
-#### `--dynamo-session-timeout-seconds` `<int>`
-
-Dynamo nvext.session_control timeout in seconds when --use-dynamo-conv-aware-routing is enabled.
-<br/>_Constraints: ≥ 1_
-<br/>_Default: `300`_
+Repeatable key=value option for the selected --session-routing mode (e.g. --session-routing-opt timeout_seconds=600), validated against the plugin's Options model. Commas inside the value are passed through to the plugin (repeat the flag for multiple opts).
+<br/>_Default: `[]`_
 
 #### `--connection-reuse-strategy` `<str>`
 
@@ -1306,7 +1300,7 @@ Explore AIPerf plugins: aiperf plugins [category] [type]
 #### `--category` `<str>`
 
 Category to explore.
-<br/>_Choices: [`accumulator`, `accuracy_benchmark`, `accuracy_grader`, `analyzer`, `api_router`, `arrival_pattern`, `communication`, `communication_client`, `console_exporter`, `custom_dataset_loader`, `data_exporter`, `dataset_backing_store`, `dataset_client_store`, `dataset_composer`, `dataset_sampler`, `endpoint`, `gpu_telemetry_collector`, `plot`, `public_dataset_loader`, `ramp`, `record_processor`, `service`, `service_manager`, `stream_exporter`, `timing_strategy`, `transport`, `ui`, `url_selection_strategy`, `zmq_proxy`]_
+<br/>_Choices: [`accumulator`, `accuracy_benchmark`, `accuracy_grader`, `analyzer`, `api_router`, `arrival_pattern`, `communication`, `communication_client`, `console_exporter`, `custom_dataset_loader`, `data_exporter`, `dataset_backing_store`, `dataset_client_store`, `dataset_composer`, `dataset_sampler`, `endpoint`, `gpu_telemetry_collector`, `plot`, `public_dataset_loader`, `ramp`, `record_processor`, `service`, `service_manager`, `session_routing`, `stream_exporter`, `timing_strategy`, `transport`, `ui`, `url_selection_strategy`, `zmq_proxy`]_
 
 #### `--name` `<str>`
 

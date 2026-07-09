@@ -16,14 +16,8 @@ class TestEndpointInfoMultiURL:
         info = EndpointInfo()
         assert info.base_urls == [EndpointDefaults.URL]
         assert info.base_url == EndpointDefaults.URL
-        assert (
-            info.use_dynamo_conv_aware_routing
-            == EndpointDefaults.USE_DYNAMO_CONV_AWARE_ROUTING
-        )
-        assert (
-            info.dynamo_session_timeout_seconds
-            == EndpointDefaults.DYNAMO_SESSION_TIMEOUT_SECONDS
-        )
+        assert info.session_routing is None
+        assert info.session_routing_opts == {}
 
     def test_single_url_custom(self):
         """Custom single URL should work."""
@@ -43,18 +37,19 @@ class TestEndpointInfoMultiURL:
         with pytest.raises(ValueError):
             EndpointInfo(base_urls=[])
 
-    def test_dynamo_session_control_from_user_config(self):
-        """Dynamo session-control fields should flow into runtime endpoint info."""
+    def test_session_routing_from_user_config(self):
+        """Session-routing fields should flow into runtime endpoint info,
+        with opts canonicalized to the plugin's Options model types."""
         user_config = UserConfig(
             endpoint=EndpointConfig(
                 model_names=["test-model"],
-                use_dynamo_conv_aware_routing=True,
-                dynamo_session_timeout_seconds=123,
+                session_routing="dynamo_nvext",
+                session_routing_opt=["timeout_seconds=123"],
             )
         )
         info = ModelEndpointInfo.from_user_config(user_config).endpoint
-        assert info.use_dynamo_conv_aware_routing is True
-        assert info.dynamo_session_timeout_seconds == 123
+        assert info.session_routing == "dynamo_nvext"
+        assert info.session_routing_opts == {"timeout_seconds": 123}
 
 
 class TestEndpointInfoGetUrl:

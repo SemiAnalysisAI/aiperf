@@ -189,7 +189,9 @@ class TestDatasetManagerCacheRoundtrip:
         cfg_b.input.file = None
         cfg_b.input.custom_dataset_type = None
         cfg_b.input.public_dataset = PublicDatasetType.WEKA_HF
-        cfg_b.input.hf_weka_dataset = "semianalysisai/cc-traces-weka-with-subagents-051826"
+        cfg_b.input.hf_weka_dataset = (
+            "semianalysisai/cc-traces-weka-with-subagents-051826"
+        )
 
         key_a = mmap_cache.compute_cache_key_from_user_config(cfg_a)
         key_b = mmap_cache.compute_cache_key_from_user_config(cfg_b)

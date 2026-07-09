@@ -230,9 +230,11 @@ class TestPreformatPayloadsAdversarial:
         mgr = object.__new__(DatasetManager)
         # Minimal user_config: any non-None object is enough to pass the guard.
         mgr.user_config = Mock()
-        # Disable cache-bust so the preformat path runs (the cache-bust early
-        # return bails preformatting whenever target != NONE).
+        # Disable both body-mutators so the preformat path runs (the
+        # _body_mutating_feature early return bails preformatting whenever
+        # cache-bust or a body-mutating session-routing mode is active).
         mgr.user_config.input.prompt.cache_bust.target = CacheBustTarget.NONE
+        mgr.user_config.endpoint.session_routing = None
         # Stub the logger mixin attrs that _preformat_payloads uses.
         mgr.info = Mock()
         return mgr

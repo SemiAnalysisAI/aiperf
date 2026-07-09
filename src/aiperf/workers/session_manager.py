@@ -314,6 +314,15 @@ class UserSessionManager:
         """
         return self._cache.get(x_correlation_id)
 
+    def live_session_ids(self) -> list[str]:
+        """Correlation IDs of every session still resident in the cache.
+
+        Snapshot (not a view) so callers may evict/notify while iterating.
+        Used by the worker's shutdown sweep to fire the routing plugin's
+        post-session hook for sessions abandoned mid-conversation at run end.
+        """
+        return list(self._cache.keys())
+
     def evict(self, x_correlation_id: str) -> None:
         """
         Evict user session.

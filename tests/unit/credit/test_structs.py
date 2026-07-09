@@ -75,3 +75,24 @@ def test_turn_to_send_does_not_propagate_max_tokens_override():
     parent = _make_credit(max_tokens_override=1)
     next_turn = TurnToSend.from_previous_credit(parent)
     assert next_turn.max_tokens_override is None
+
+
+def test_turn_to_send_from_previous_credit_stamps_has_branches_from_next_meta():
+    """The mainline multi-turn continuation seam must stamp the any-mode
+    branch flag from the NEW turn's metadata, or a SPAWN-declaring final
+    turn reads as tree-final while its children are still pending."""
+    from aiperf.common.models.dataset_models import TurnMetadata
+
+    parent = _make_credit()
+    branching = TurnToSend.from_previous_credit(
+        parent, next_meta=TurnMetadata(timestamp_ms=0.0, branch_ids=["c:0"])
+    )
+    assert branching.has_branches is True
+
+    leaf = TurnToSend.from_previous_credit(
+        parent, next_meta=TurnMetadata(timestamp_ms=0.0)
+    )
+    assert leaf.has_branches is False
+
+    no_meta = TurnToSend.from_previous_credit(parent)
+    assert no_meta.has_branches is False

@@ -7,7 +7,6 @@ import importlib.metadata as importlib_metadata
 import pytest
 
 from aiperf.common.enums import CreditPhase, ModelSelectionStrategy
-from aiperf.common.environment import Environment
 from aiperf.common.models.model_endpoint_info import (
     EndpointInfo,
     ModelEndpointInfo,
@@ -153,28 +152,6 @@ class TestBaseTransport:
         assert headers["Authorization"] == "Bearer token123"
         assert headers["Custom-Header"] == "custom-value"
         assert headers["User-Agent"] == AIPERF_USER_AGENT
-
-    def test_build_headers_can_alias_correlation_id_as_session_id(
-        self, transport, request_info, monkeypatch
-    ):
-        """Test opt-in session affinity header for external routers."""
-        monkeypatch.setattr(Environment.HTTP, "X_SESSION_ID_FROM_CORRELATION_ID", True)
-
-        headers = transport.build_headers(request_info)
-
-        assert headers["X-Session-ID"] == "test-correlation-id"
-
-    def test_build_headers_can_alias_correlation_id_as_smg_routing_key(
-        self, transport, request_info, monkeypatch
-    ):
-        """Test opt-in SGLang Model Gateway affinity header."""
-        monkeypatch.setattr(
-            Environment.HTTP, "X_SMG_ROUTING_KEY_FROM_CORRELATION_ID", True
-        )
-
-        headers = transport.build_headers(request_info)
-
-        assert headers["X-SMG-Routing-Key"] == "test-correlation-id"
 
     def test_build_headers_transport_headers_override(self, request_info):
         """Test that transport headers can override endpoint headers."""

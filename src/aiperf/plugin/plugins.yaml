@@ -427,6 +427,59 @@ transport:
       url_schemes: [http, https]
 
 # =============================================================================
+# Session Routing
+# =============================================================================
+# Session-routing transforms stamp per-session identity onto outbound
+# requests so an external router can pin every turn to one worker.
+# Selected via --session-routing; one instance per worker.
+# =============================================================================
+session_routing:
+  dynamo_headers:
+    class: aiperf.workers.session_routing:DynamoHeadersRouting
+    description: |
+      Dynamo session affinity via X-Dynamo-Session-ID plus
+      X-Dynamo-Parent-Session-ID on subagent children. Pair with a Dynamo
+      frontend running --router-session-affinity-ttl-secs. No options.
+
+  dynamo_nvext:
+    class: aiperf.workers.session_routing:DynamoNvextRouting
+    description: |
+      Dynamo session affinity via nvext.session_control request-body
+      metadata: bind on every non-final turn, close on the final turn.
+      Only for Dynamo builds that implement session_control (current
+      upstream main does not; use dynamo_headers there). Mutates request
+      bodies, so it is incompatible with the PAYLOAD_BYTES mmap fast path.
+      Option: timeout_seconds (default 300).
+
+  smg_routing_key:
+    class: aiperf.workers.session_routing:SmgRoutingKeyRouting
+    description: |
+      SGLang Model Gateway stickiness: emits X-SMG-Routing-Key with the
+      session's correlation ID for the gateway's manual routing policy
+      (--policy manual). No options.
+
+  session_id_header:
+    class: aiperf.workers.session_routing:SessionIdHeaderRouting
+    description: |
+      Preset: additive X-Session-ID header carrying the session's
+      correlation ID. No options; equivalent to identity_headers with
+      session=X-Session-ID (use identity_headers for custom names or
+      parent/root tiers).
+
+  identity_headers:
+    class: aiperf.workers.session_routing:IdentityHeadersRouting
+    description: |
+      Fully generic tiered identity headers: emits exactly the headers
+      configured, nothing by default. Options (each a comma-separable
+      list of names): session (this session's correlation ID), parent
+      (immediate parent's ID, omitted for roots), root (session-tree
+      root's ID, for whole-tree affinity). At least one name across
+      tiers is required; names must be unique (case-insensitive) across
+      all tiers combined. The named
+      presets are expressible via this mode, e.g. dynamo_headers is
+      session=X-Dynamo-Session-ID + parent=X-Dynamo-Parent-Session-ID.
+
+# =============================================================================
 # Dataset Composers
 # =============================================================================
 # Dataset composers create conversation datasets from various sources.
