@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import re
 from abc import ABC
-from typing import Annotated, Any, ClassVar, Generic, TypeVar
+from typing import Annotated, Any, ClassVar, Generic, Literal, TypeVar
 
 from msgspec import Struct
 from pydantic import BeforeValidator, ConfigDict, Field, model_validator
@@ -141,6 +141,17 @@ class DynamoNvextOptions(AIPerfBaseModel):
         ge=1,
         description="Dynamo session_control inactivity timeout carried on every bind.",
     )
+    scope: Literal["conversation", "lineage"] = Field(
+        default="conversation",
+        description="Affinity-key scope. 'conversation' (default) binds each "
+        "session with its own correlation ID and closes on its final turn. "
+        "'lineage' binds every session in an agent tree with the tree ROOT's "
+        "correlation ID so the whole lineage co-locates on the worker holding "
+        "the shared parent prefix (for Dynamo deployments without KV-event "
+        "prefix indexing); the shared key is closed only on a request stamped "
+        "provably-last for the whole tree (is_tree_final, agentic replay) -- "
+        "otherwise the session_control TTL reclaims it.",
+    )
 
 
 class DynamoNvextRouting(SessionRoutingBase[DynamoNvextOptions]):
@@ -150,6 +161,14 @@ class DynamoNvextRouting(SessionRoutingBase[DynamoNvextOptions]):
     router, refreshes the TTL), 'close' on the final turn. Targets Dynamo
     builds that implement session_control; current upstream Dynamo main does
     not (use dynamo_headers there).
+
+    Under ``scope=lineage`` the affinity key is the tree root's correlation ID
+    and the close discipline changes: a shared key must never be torn down
+    while sibling sessions may still run (a later bind would re-place the
+    straggler arbitrarily and lose co-location), so close fires only on a
+    request the issuer stamped ``is_tree_final`` -- conservative-exact under
+    agentic replay, never under indeterminate modes, where the TTL reaper
+    reclaims the key instead.
     """
 
     mutates_body: ClassVar[bool] = True
@@ -160,18 +179,25 @@ class DynamoNvextRouting(SessionRoutingBase[DynamoNvextOptions]):
         # Hot path: one attribute hop per request instead of two through the
         # pydantic options model.
         self._timeout = options.timeout_seconds
+        self._lineage = options.scope == "lineage"
 
     def transform_body(
         self, payload: dict[str, Any], ctx: RoutingContext
     ) -> dict[str, Any]:
-        if ctx.is_final_turn:
+        if self._lineage:
+            session_id = ctx.root_correlation_id or ctx.x_correlation_id
+            is_close = ctx.is_tree_final
+        else:
+            session_id = ctx.x_correlation_id
+            is_close = ctx.is_final_turn
+        if is_close:
             session_control: dict[str, Any] = {
-                "session_id": ctx.x_correlation_id,
+                "session_id": session_id,
                 "action": "close",
             }
         else:
             session_control = {
-                "session_id": ctx.x_correlation_id,
+                "session_id": session_id,
                 "action": "bind",
                 "timeout": self._timeout,
             }

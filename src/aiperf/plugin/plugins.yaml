@@ -449,7 +449,12 @@ session_routing:
       Only for Dynamo builds that implement session_control (current
       upstream main does not; use dynamo_headers there). Mutates request
       bodies, so it is incompatible with the PAYLOAD_BYTES mmap fast path.
-      Option: timeout_seconds (default 300).
+      Options: timeout_seconds (default 300); scope (default
+      conversation) -- scope=lineage binds every session in an agent
+      tree with the tree ROOT's correlation ID so the whole lineage
+      co-locates with the shared parent prefix (for deployments without
+      KV-event prefix indexing), closing the shared key only on a
+      request stamped provably-last for the whole tree.
 
   smg_routing_key:
     class: aiperf.workers.session_routing:SmgRoutingKeyRouting

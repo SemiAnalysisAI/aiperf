@@ -129,6 +129,52 @@ class TestDynamoNvextRouting:
         merged = plugin.transform_body({"nvext": "bogus"}, _ctx())
         assert merged["nvext"]["session_control"]["session_id"] == "corr-1"
 
+    def test_lineage_scope_child_binds_with_root_id(self):
+        """Under scope=lineage, every session in the tree binds the ROOT's
+        correlation ID so the whole lineage co-locates."""
+        plugin = DynamoNvextRouting(
+            DynamoNvextOptions(scope="lineage", timeout_seconds=77)
+        )
+        ctx = _ctx(
+            parent_correlation_id="root-1",
+            root_correlation_id="root-1",
+            is_final_turn=True,  # child's own final turn must NOT close
+        )
+        sc = plugin.transform_body({}, ctx)["nvext"]["session_control"]
+        assert sc == {"session_id": "root-1", "action": "bind", "timeout": 77}
+
+    def test_lineage_scope_root_final_turn_binds_not_closes(self):
+        """A shared key must never be torn down while siblings may still run:
+        even the root's own final turn only binds unless the issuer stamped
+        the request provably-last for the whole tree."""
+        plugin = DynamoNvextRouting(DynamoNvextOptions(scope="lineage"))
+        sc = plugin.transform_body({}, _ctx(is_final_turn=True))["nvext"][
+            "session_control"
+        ]
+        assert sc["action"] == "bind"
+        assert sc["session_id"] == "corr-1"
+
+    def test_lineage_scope_closes_only_on_tree_final(self):
+        plugin = DynamoNvextRouting(DynamoNvextOptions(scope="lineage"))
+        ctx = _ctx(
+            root_correlation_id="root-1",
+            is_final_turn=True,
+            is_tree_final=True,
+        )
+        sc = plugin.transform_body({}, ctx)["nvext"]["session_control"]
+        assert sc == {"session_id": "root-1", "action": "close"}
+
+    def test_conversation_scope_default_unchanged(self):
+        """Default scope keeps per-conversation identity and final-turn close."""
+        plugin = DynamoNvextRouting(DynamoNvextOptions())
+        assert plugin.transform_body({}, _ctx(is_final_turn=True))["nvext"][
+            "session_control"
+        ] == {"session_id": "corr-1", "action": "close"}
+
+    def test_invalid_scope_rejected(self):
+        with pytest.raises(ValidationError):
+            DynamoNvextOptions(scope="tree")
+
 
 class TestSmgRoutingKeyRouting:
     def test_emits_routing_key(self):
