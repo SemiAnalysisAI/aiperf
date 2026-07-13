@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from aiperf.common.enums import CacheBustTarget, ConversationBranchMode, CreditPhase
+from aiperf.common.environment import Environment
 from aiperf.common.models import (
     ConversationMetadata,
     DatasetMetadata,
@@ -664,6 +665,28 @@ async def test_warmup_spreads_globally_aligned_on_t_star_by_default():
     # Spread path must NOT mark sending complete early (would refuse the
     # scheduled dispatches); the count path drives completion.
     lifecycle.mark_sending_complete.assert_not_called()
+
+
+def test_warmup_min_interval_extends_dispatch_ramp(monkeypatch):
+    """Throttling follows chronological offsets, not trajectory list order."""
+    turns = [
+        MagicMock(spec=TurnToSend, x_correlation_id="r_a"),
+        MagicMock(spec=TurnToSend, x_correlation_id="r_b"),
+        MagicMock(spec=TurnToSend, x_correlation_id="r_c"),
+    ]
+    prepared = [
+        (turns[0], 5_000.0),
+        (turns[1], 15_000.0),
+        (turns[2], 10_000.0),
+    ]
+    monkeypatch.setattr(Environment.AGENTIC, "SNAPSHOT_WARMUP_MIN_INTERVAL_S", 6.0)
+
+    dispatches, aligned_request_count = AgenticReplayStrategy._warmup_dispatches(
+        prepared
+    )
+
+    assert aligned_request_count == 3
+    assert dispatches == [(0.0, turns[1]), (6.0, turns[2]), (12.0, turns[0])]
 
 
 @pytest.mark.asyncio

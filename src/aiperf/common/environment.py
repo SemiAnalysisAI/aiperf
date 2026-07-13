@@ -7,6 +7,7 @@ Provides a hierarchical, type-safe configuration system using Pydantic BaseSetti
 All settings can be configured via environment variables with the AIPERF_ prefix.
 
 Structure:
+    Environment.AGENTIC.*        - Agentic replay settings
     Environment.AGENTX.*         - InferenceX AgentX scenario settings
     Environment.API_SERVER.*     - API server settings
     Environment.COMPRESSION.*    - Compression settings for streaming file transfers
@@ -87,6 +88,23 @@ class _APIServerSettings(BaseSettings):
         le=300.0,
         default=5.0,
         description="Timeout in seconds for graceful API server shutdown before force-cancelling",
+    )
+
+
+class _AgenticSettings(BaseSettings):
+    """Settings for agentic replay timing behavior."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="AIPERF_AGENTIC_",
+    )
+
+    SNAPSHOT_WARMUP_MIN_INTERVAL_S: float = Field(
+        ge=0.0,
+        default=0.0,
+        description="Minimum interval in seconds between snapshot warmup request "
+        "dispatches. Values greater than zero extend the timestamp-derived warmup "
+        "ramp when needed, reducing synchronized connection bursts at high "
+        "concurrency. The default 0 preserves trace-derived dispatch timing.",
     )
 
 
@@ -1323,6 +1341,10 @@ class _Environment(BaseSettings):
     )
 
     # Nested subsystem settings (alphabetically ordered)
+    AGENTIC: _AgenticSettings = Field(
+        default_factory=_AgenticSettings,
+        description="Agentic replay settings",
+    )
     AGENTX: _AgentXSettings = Field(
         default_factory=_AgentXSettings,
         description="InferenceX AgentX scenario settings",
