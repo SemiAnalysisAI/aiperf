@@ -22,6 +22,14 @@ export AIPERF_ZMQ_RCVTIMEO=600000
 > Environment variable names, default values, and definitions are subject to change.
 > These settings may be modified, renamed, or removed in future releases.
 
+## AGENTIC
+
+Settings for agentic replay timing behavior.
+
+| Environment Variable | Default | Constraints | Description |
+|----------------------|---------|-------------|-------------|
+| `AIPERF_AGENTIC_SNAPSHOT_WARMUP_MIN_INTERVAL_S` | `0.0` | ≥ 0.0 | Minimum interval in seconds between snapshot warmup request dispatches. Values greater than zero extend the timestamp-derived warmup ramp when needed, reducing synchronized connection bursts at high concurrency. The default 0 preserves trace-derived dispatch timing. |
+
 ## AGENTX
 
 Settings for the InferenceX AgentX scenario family. Controls runtime detection knobs for the agentx scenario, currently the substring allowlist used to classify a server response as a context-overflow error (RFC 2026-04-26 §7).

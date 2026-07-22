@@ -7,11 +7,34 @@ import pytest
 from pytest import param
 
 from aiperf.common.environment import (
+    _AgenticSettings,
     _APIServerSettings,
     _CompressionSettings,
     _Environment,
     _ServiceSettings,
 )
+
+
+class TestAgenticSettings:
+    """Test agentic replay environment settings."""
+
+    def test_snapshot_warmup_min_interval_default(self) -> None:
+        settings = _AgenticSettings()
+        assert settings.SNAPSHOT_WARMUP_MIN_INTERVAL_S == 0.0
+
+    def test_snapshot_warmup_min_interval_env_override(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("AIPERF_AGENTIC_SNAPSHOT_WARMUP_MIN_INTERVAL_S", "0.05")
+        settings = _AgenticSettings()
+        assert settings.SNAPSHOT_WARMUP_MIN_INTERVAL_S == 0.05
+
+    def test_snapshot_warmup_min_interval_rejects_negative_value(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("AIPERF_AGENTIC_SNAPSHOT_WARMUP_MIN_INTERVAL_S", "-0.01")
+        with pytest.raises(ValueError):
+            _AgenticSettings()
 
 
 class TestServiceSettingsUvloopWindows:

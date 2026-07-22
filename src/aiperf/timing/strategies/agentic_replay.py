@@ -533,19 +533,14 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         # the same instant (warmup-time ``max_lead``); the furthest-before-t*
         # request fires at 0. Do NOT mark sending complete -- the count path
         # finalizes once the last scheduled dispatch fires.
-        leads = [d for _, d in prepared if d is not None]
-        max_lead_ms = max(leads, default=0.0)
-        spread_s = (max_lead_ms - min(leads, default=0.0)) / MILLIS_PER_SECOND
+        dispatches, aligned_request_count = self._warmup_dispatches(prepared)
+        spread_s = max((offset_s for offset_s, _ in dispatches), default=0.0)
         self.info(
-            f"WARMUP spread: {spread_s:.1f}s ramp aligning {len(leads)} request(s) "
+            f"WARMUP spread: {spread_s:.1f}s ramp aligning "
+            f"{aligned_request_count} request(s) "
             f"on t* (earliest fires at 0, last at {spread_s:.1f}s)"
         )
-        for turn, lead_ms in prepared:
-            offset_s = (
-                (max_lead_ms - lead_ms) / MILLIS_PER_SECOND
-                if lead_ms is not None
-                else 0.0
-            )
+        for offset_s, turn in dispatches:
             if offset_s > 0:
                 self.scheduler.schedule_later(
                     offset_s, self.credit_issuer.issue_credit(turn)
@@ -553,6 +548,34 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
             else:
                 await self.credit_issuer.issue_credit(turn)
         await self._start_accelerated_warmup_if_empty(prepared)
+
+    @staticmethod
+    def _warmup_dispatches(
+        prepared: list[tuple[TurnToSend, float | None]],
+    ) -> tuple[list[tuple[float, TurnToSend]], int]:
+        """Build chronological warmup offsets and apply optional throttling."""
+        leads = [lead_ms for _, lead_ms in prepared if lead_ms is not None]
+        max_lead_ms = max(leads, default=0.0)
+        dispatches = [
+            (
+                (max_lead_ms - lead_ms) / MILLIS_PER_SECOND
+                if lead_ms is not None
+                else 0.0,
+                turn,
+            )
+            for turn, lead_ms in prepared
+        ]
+        min_interval_s = Environment.AGENTIC.SNAPSHOT_WARMUP_MIN_INTERVAL_S
+        if min_interval_s <= 0:
+            return dispatches, len(leads)
+
+        next_offset_s = 0.0
+        throttled_dispatches: list[tuple[float, TurnToSend]] = []
+        for offset_s, turn in sorted(dispatches, key=lambda item: item[0]):
+            offset_s = max(offset_s, next_offset_s)
+            throttled_dispatches.append((offset_s, turn))
+            next_offset_s = offset_s + min_interval_s
+        return throttled_dispatches, len(leads)
 
     async def _finish_initial_warmup_dispatch(
         self, prepared: list[tuple[TurnToSend, float | None]]
