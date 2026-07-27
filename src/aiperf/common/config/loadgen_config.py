@@ -20,6 +20,7 @@ class LoadGeneratorConfig(BaseConfig):
 
     _inter_turn_delay_cap_explicitly_set: bool = False
     _trace_idle_gap_cap_explicitly_set: bool = False
+    _system_idle_gap_cap_explicitly_set: bool = False
     _trajectory_start_min_ratio_explicitly_set: bool = False
     _trajectory_start_max_ratio_explicitly_set: bool = False
 
@@ -37,6 +38,9 @@ class LoadGeneratorConfig(BaseConfig):
         )
         self._trace_idle_gap_cap_explicitly_set = (
             "trace_idle_gap_cap_seconds" in self.model_fields_set
+        )
+        self._system_idle_gap_cap_explicitly_set = (
+            "system_idle_gap_cap_seconds" in self.model_fields_set
         )
         self._trajectory_start_min_ratio_explicitly_set = (
             "trajectory_start_min_ratio" in self.model_fields_set
@@ -442,6 +446,24 @@ class LoadGeneratorConfig(BaseConfig):
         ),
         CLIParameter(
             name=("--trace-idle-gap-cap-seconds",),
+            group=Groups.LOAD_GENERATOR,
+        ),
+    ] = None
+
+    system_idle_gap_cap_seconds: Annotated[
+        float | None,
+        Field(
+            default=None,
+            ge=0.0,
+            description="Maximum time (seconds) an agentic replay may remain "
+            "globally idle while future requests are scheduled. When no requests "
+            "are in flight or ready, all pending replay timers are shifted earlier "
+            "by the same amount so the next request arrives within this limit. "
+            "Per-trace timing, timer ordering, and relative spacing are otherwise "
+            "preserved. Defaults to None (no global idle compression).",
+        ),
+        CLIParameter(
+            name=("--system-idle-gap-cap-seconds",),
             group=Groups.LOAD_GENERATOR,
         ),
     ] = None

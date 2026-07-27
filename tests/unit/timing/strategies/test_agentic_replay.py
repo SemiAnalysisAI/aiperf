@@ -93,6 +93,7 @@ def _make_strategy(
     user_config: object | None = None,
     dataset: DatasetMetadata | None = None,
     cache_warmup_duration: float | None = None,
+    progress: MagicMock | None = None,
 ) -> tuple[AgenticReplayStrategy, AsyncMock, MagicMock, TrajectorySource]:
     src = _build_real_trajectory_source(
         num_traces, turns_per_trace, trajectories, dataset=dataset
@@ -115,6 +116,7 @@ def _make_strategy(
         credit_issuer=issuer,
         lifecycle=MagicMock(),
         user_config=user_config,
+        progress=progress,
     )
     return strategy, issuer, scheduler, src
 
@@ -181,6 +183,36 @@ def test_constructor_rejects_non_trajectory_source():
             credit_issuer=AsyncMock(),
             lifecycle=MagicMock(),
         )
+
+
+def test_system_idle_cap_shifts_pending_schedule_only_when_globally_idle():
+    trajectories = [Trajectory(conversation_id="trace_0", start_turn_index=0)]
+    scheduler = MagicMock()
+    scheduler.running_count = 0
+    scheduler.cap_pending_delay.return_value = 90.0
+    progress = MagicMock()
+    progress.in_flight = 0
+    user_config = _make_user_config(target=CacheBustTarget.FIRST_TURN_PREFIX)
+    user_config.loadgen.system_idle_gap_cap_seconds = 10.0
+
+    strategy, _, _, _ = _make_strategy(
+        phase=CreditPhase.PROFILING,
+        trajectories=trajectories,
+        scheduler=scheduler,
+        user_config=user_config,
+        progress=progress,
+    )
+
+    strategy.enforce_system_idle_cap()
+
+    scheduler.cap_pending_delay.assert_called_once_with(10.0)
+    assert strategy._system_idle_jump_count == 1
+    assert strategy._system_idle_seconds_skipped == 90.0
+
+    scheduler.reset_mock()
+    progress.in_flight = 1
+    strategy.enforce_system_idle_cap()
+    scheduler.cap_pending_delay.assert_not_called()
 
 
 def test_constructor_accepts_warmup_and_profiling():
@@ -2331,6 +2363,11 @@ def _make_user_config(
     return SimpleNamespace(
         input=SimpleNamespace(
             prompt=SimpleNamespace(cache_bust=SimpleNamespace(target=target))
+        ),
+        loadgen=SimpleNamespace(
+            burst_phase_starts=False,
+            trace_idle_gap_cap_seconds=None,
+            system_idle_gap_cap_seconds=None,
         ),
         benchmark_id=benchmark_id,
     )

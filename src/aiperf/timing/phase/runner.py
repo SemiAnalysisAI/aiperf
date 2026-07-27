@@ -338,6 +338,7 @@ class PhaseRunner(TaskManagerMixin):
             user_config=self._user_config,
             branch_orchestrator=self._branch_orchestrator,
             session_tree_registry=self._session_tree_registry,
+            progress=self._progress,
         )
 
         try:
