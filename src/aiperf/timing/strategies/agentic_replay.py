@@ -415,6 +415,12 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         """Bound true system-idle time without changing an individual trace."""
         if self._system_idle_gap_cap_seconds is None:
             return
+        # Accelerated warmup intentionally runs without replay delays and owns
+        # a scheduler timer that marks the configured warmup-duration cutoff.
+        # That control timer is not a pending request and must never be pulled
+        # forward by the global idle guard.
+        if self._accelerated_warmup_started:
+            return
         if in_flight_requests is None:
             if self._progress is None:
                 return
