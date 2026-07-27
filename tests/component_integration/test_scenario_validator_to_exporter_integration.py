@@ -10,8 +10,8 @@ Pins the full chain:
                                           -> final JSON metadata fields
 
 The validator both *returns* a ValidationOutcome and *mutates* the user_config
-in place (auto-injecting ignore_eos, random_seed, inter_turn_delay_cap, and the
-storage backing timing_mode at default). The cli_runner wire then stamps the
+in place (auto-injecting ignore_eos, random_seed, the locked global-idle cap,
+and the storage backing timing_mode at default). The cli_runner wire then stamps the
 outcome onto AggregateResult.metadata via underscore-prefixed carrier keys
 (``_scenario_name``, ``_validator_submission_valid``,
 ``_validator_submission_invalid_reasons``, ``_total_responses``,
@@ -68,7 +68,8 @@ def _user_config(
     loader: str | None = "semianalysis_cc_traces_weka_with_subagents",
     benchmark_duration: float | None = 900.0,
     inter_turn_delay_cap_seconds: float | None = None,
-    trace_idle_gap_cap_seconds: float | None = 60.0,
+    trace_idle_gap_cap_seconds: float | None = None,
+    system_idle_gap_cap_seconds: float | None = 10.0,
     random_seed: int | None = 42,
     unsafe_override: bool = False,
     cache_bust_target: CacheBustTarget | None = None,
@@ -91,9 +92,11 @@ def _user_config(
     cfg.loadgen.benchmark_duration = benchmark_duration
     cfg.loadgen.inter_turn_delay_cap_seconds = inter_turn_delay_cap_seconds
     cfg.loadgen.trace_idle_gap_cap_seconds = trace_idle_gap_cap_seconds
+    cfg.loadgen.system_idle_gap_cap_seconds = system_idle_gap_cap_seconds
     cfg.input._use_think_time_only_explicitly_set = False
     cfg.loadgen._inter_turn_delay_cap_explicitly_set = False
     cfg.loadgen._trace_idle_gap_cap_explicitly_set = False
+    cfg.loadgen._system_idle_gap_cap_explicitly_set = False
     # Scenario lock requires cache_bust.target=FIRST_TURN_PREFIX. Default to it
     # so tests targeting OTHER invariants don't trip the cache-bust check.
     cfg.input.prompt.cache_bust.target = (
@@ -319,23 +322,24 @@ def test_validator_auto_injects_ignore_eos_when_absent() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 5: trace_idle_gap_cap_seconds=None + not explicitly set ->
-# validator auto-sets it to the spec's locked 60.0.
+# Test 5: system_idle_gap_cap_seconds=None + not explicitly set ->
+# validator auto-sets it to the spec's locked 10.0 while leaving trace timing raw.
 # ---------------------------------------------------------------------------
 
 
-def test_validator_auto_sets_trace_idle_gap_cap_when_unset() -> None:
+def test_validator_auto_sets_system_idle_gap_cap_when_unset() -> None:
     cfg = _user_config(
         extra_inputs={"ignore_eos": True},
-        trace_idle_gap_cap_seconds=None,
+        system_idle_gap_cap_seconds=None,
     )
-    cfg.loadgen._trace_idle_gap_cap_explicitly_set = False
+    cfg.loadgen._system_idle_gap_cap_explicitly_set = False
 
     outcome = validate_scenario(cfg)
 
     assert outcome.violations == []
     assert outcome.submission_valid is True
-    assert cfg.loadgen.trace_idle_gap_cap_seconds == 60.0
+    assert cfg.loadgen.trace_idle_gap_cap_seconds is None
+    assert cfg.loadgen.system_idle_gap_cap_seconds == 10.0
 
 
 # ---------------------------------------------------------------------------

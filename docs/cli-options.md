@@ -916,6 +916,11 @@ Hard ceiling (seconds) for inter-turn delays in trace replay. Applies to all tra
 Hard ceiling (seconds) for idle gaps within each individual trace. For Weka trace replay, AIPerf looks at all parent and subagent request submission timestamps within one root trace, compresses long gaps between consecutive request submissions, and derives turn delays from the compressed per-trace timeline. Original request api_time values are not used to decide these idle gaps. When set for Weka, this takes precedence over `--inter-turn-delay-cap-seconds` so individual parent/subagent-line delays are not separately capped. Defaults to None (no per-trace idle-gap compression).
 <br/>_Constraints: ≥ 0.0_
 
+#### `--system-idle-gap-cap-seconds` `<float>`
+
+Maximum time (seconds) an agentic replay may remain globally idle while future requests are scheduled. When no requests are in flight or ready, all pending replay timers are shifted earlier by the same amount so the next request arrives within this limit. Per-trace timing, timer ordering, and relative spacing are otherwise preserved. Defaults to None (no global idle compression).
+<br/>_Constraints: ≥ 0.0_
+
 #### `--warmup-request-count`, `--num-warmup-requests` `<int>`
 
 The maximum number of warmup requests to send before benchmarking. If not set and no --warmup-duration is set, then no warmup phase will be used.

@@ -180,6 +180,22 @@ def test_convert_to_conversations_builds_one_conversation_per_normal_request(
     assert non_system and non_system[0] == "user", accumulated_roles
 
 
+def test_end_to_start_delay_without_trace_idle_warp_preserves_timestamps():
+    """End-to-start timing must not depend on enabling the old trace warp."""
+    uc = _mk_user_config()
+    uc.input.use_end_to_start_delays = True
+    loader = WekaTraceLoader(filename=str(FIXTURES / "simple.json"), user_config=uc)
+    _stub_prompt_generator_for_reconstructor(loader)
+
+    turns = loader.convert_to_conversations(loader.load_dataset())[0].turns
+
+    # Raw starts remain 0s and 5s.  The replay delay after the first response
+    # is the recorded idle 5s - 1s api_time, rather than the 5s start gap.
+    assert [turn.timestamp for turn in turns] == [0.0, 5000.0]
+    assert turns[0].delay is None
+    assert turns[1].delay == pytest.approx(4000.0)
+
+
 def test_convert_to_conversations_emits_alternating_roles(monkeypatch):
     """Turn 1+ keeps the assistant segment between the surviving user
     content and the new user_k content (symmetric attribution, spec section

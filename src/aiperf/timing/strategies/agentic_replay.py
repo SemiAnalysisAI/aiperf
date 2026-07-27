@@ -42,7 +42,7 @@ eligible request to profiling-time 0. Accelerated cache warmup synthesizes a
 new replay boundary at the warmup handoff and carries each live stream's
 residual next-turn delay into profiling, so the handoff ramps instead of
 firing every live stream at once. Subsequent turns honor trace inter-turn
-``delay_ms`` (already clamped upstream in the loader). Gated parents fire their
+``delay_ms`` from the original trace timeline. Gated parents fire their
 join turn when blocking children complete. When a root session reaches its
 final turn, its trace_id is recycled FIFO-style and a fresh session (starting
 at turn 0) is spawned from the next trace_id in the queue.
@@ -86,6 +86,7 @@ if TYPE_CHECKING:
     from aiperf.timing.config import CreditPhaseConfig
     from aiperf.timing.conversation_source import ConversationSource
     from aiperf.timing.phase.lifecycle import PhaseLifecycle
+    from aiperf.timing.phase.progress_tracker import PhaseProgressTracker
     from aiperf.timing.phase.stop_conditions import StopConditionChecker
 
 
@@ -109,6 +110,7 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         user_config: UserConfig | None = None,
         branch_orchestrator=None,
         session_tree_registry=None,
+        progress: PhaseProgressTracker | None = None,
         **kwargs,
     ) -> None:
         super().__init__(logger_name="AgenticReplayTiming")
@@ -132,6 +134,7 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         self.credit_issuer = credit_issuer
         self.lifecycle = lifecycle
         self.branch_orchestrator = branch_orchestrator
+        self._progress = progress
         # Per-tree session-slot ledger (agentic replay PROFILING only). When
         # present, a lane's session slot is held until its whole TREE drains
         # (root + every descendant), and recycle of the freed lane is driven by
@@ -233,6 +236,14 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
             if isinstance(idle_cap_s, int | float)
             else None
         )
+        system_idle_cap_s = getattr(loadgen, "system_idle_gap_cap_seconds", None)
+        self._system_idle_gap_cap_seconds: float | None = (
+            float(system_idle_cap_s)
+            if isinstance(system_idle_cap_s, int | float)
+            else None
+        )
+        self._system_idle_jump_count = 0
+        self._system_idle_seconds_skipped = 0.0
 
         # Wrap-fill + cache_bust=NONE produces byte-identical traffic across
         # shared-trace lanes. agentx-mvp auto-locks cache_bust=first_turn_prefix
@@ -398,6 +409,36 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
             await self._execute_warmup()
         else:
             await self._execute_profiling()
+        self.enforce_system_idle_cap()
+
+    def enforce_system_idle_cap(self, in_flight_requests: int | None = None) -> None:
+        """Bound true system-idle time without changing an individual trace."""
+        if self._system_idle_gap_cap_seconds is None:
+            return
+        # Accelerated warmup intentionally runs without replay delays and owns
+        # a scheduler timer that marks the configured warmup-duration cutoff.
+        # That control timer is not a pending request and must never be pulled
+        # forward by the global idle guard.
+        if self._accelerated_warmup_started:
+            return
+        if in_flight_requests is None:
+            if self._progress is None:
+                return
+            in_flight_requests = self._progress.in_flight
+        if in_flight_requests > 0 or self.scheduler.running_count > 0:
+            return
+
+        shifted = self.scheduler.cap_pending_delay(self._system_idle_gap_cap_seconds)
+        if shifted <= 0:
+            return
+        self._system_idle_jump_count += 1
+        self._system_idle_seconds_skipped += shifted
+        self.debug(
+            lambda: (
+                "Global system-idle cap advanced all pending replay timers by "
+                f"{shifted:.3f}s"
+            )
+        )
 
     def _capped_warmup_lead_ms(self, lead_ms: float) -> float:
         """Clamp a WARMUP lead (t* - the warmed turn) to the idle-gap cap.
@@ -711,6 +752,13 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
 
     async def finalize_phase(self) -> None:
         """Persist the drained accelerated-warmup DAG for profiling."""
+        if self._system_idle_gap_cap_seconds is not None:
+            self.info(
+                "Global system-idle cap summary: "
+                f"limit={self._system_idle_gap_cap_seconds:g}s, "
+                f"jumps={self._system_idle_jump_count}, "
+                f"skipped={self._system_idle_seconds_skipped:.3f}s"
+            )
         if not self._accelerated_warmup_started:
             return
         finalized_at_ns = time.perf_counter_ns()

@@ -22,7 +22,7 @@ The CLI surface this exercises that the strategy-boundary tests do *not*:
   both attributes so this path is never exercised; the CLI test uses a real
   ``UserConfig`` where the property *is* read-only.
 * The validator's auto-set behaviors mutating real config (``random_seed``,
-  ``--inter-turn-delay-cap-seconds``, ``--use-think-time-only``,
+  ``--system-idle-gap-cap-seconds``, ``--use-end-to-start-delays``,
   ``extra_inputs.ignore_eos``).
 * ``PhaseOrchestrator`` (at ``timing/phase_orchestrator.py:120``)
   detecting ``timing_mode == AGENTIC_REPLAY`` on its phase configs and
@@ -225,7 +225,7 @@ def test_agentic_replay_cli_scenario_unsafe_override_runs_to_completion(
        crash from the read-only timing_mode property write inside the
        validator).
     2. The validator's auto-set hooks fired -- ``setting timing_mode=`` and
-       ``auto-set --inter-turn-delay-cap-seconds=`` both surface in the
+       ``auto-set --system-idle-gap-cap-seconds=`` both surface in the
        captured log records (covers the ``model_post_init`` ->
        ``_run_scenario_validator`` chain).
     3. Streaming + non-streaming metrics (TTFT, TPOT, request_latency,
@@ -253,10 +253,9 @@ def test_agentic_replay_cli_scenario_unsafe_override_runs_to_completion(
         "validator must log timing_mode auto-set under --scenario "
         "(covers the read-only-property setter path against real UserConfig)"
     )
-    assert "auto-set --trace-idle-gap-cap-seconds=60.0" in log_text, (
-        "validator must auto-set the per-trace idle-gap cap when unset "
-        "(the AgentX scenario locks trace_idle_gap_cap_seconds, not the "
-        "inter-turn delay cap, since 932b4bc)"
+    assert "auto-set --system-idle-gap-cap-seconds=10.0" in log_text, (
+        "validator must auto-set the global system-idle cap when unset "
+        "without enabling a per-trace or per-turn timing cap"
     )
 
     assert result.json is not None, "JSON export must exist"
