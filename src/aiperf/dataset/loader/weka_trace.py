@@ -1467,14 +1467,25 @@ class WekaTraceLoader(HashIdsPromptSynthesisMixin, BaseFileLoader):
         flat_plans: list[_FlatChainPlan] | None = None,
     ) -> dict[str, _TraceIdleTiming]:
         trace_idle_gap_cap_seconds = self._trace_idle_gap_cap_seconds()
-        if trace_idle_gap_cap_seconds is None:
+        end_to_start = self.user_config.input.use_end_to_start_delays is True
+        if trace_idle_gap_cap_seconds is None and not end_to_start:
             return {}
-        end_to_start = self.user_config.input.use_end_to_start_delays
+        # The timing map is also the shared serial/parallel implementation of
+        # end-to-start delays.  An infinite cap leaves every timestamp
+        # untouched while still deriving delay_ms as
+        # t_curr - (t_prev + api_time_prev).  Returning early merely because
+        # the per-trace warp is disabled would silently fall back to
+        # start-to-start delays and double-count server time at replay.
+        effective_cap_seconds = (
+            trace_idle_gap_cap_seconds
+            if trace_idle_gap_cap_seconds is not None
+            else math.inf
+        )
         return {
             plan.trace_id: _build_trace_idle_timing(
                 plan=plan,
                 child_plans=child_plans,
-                cap_seconds=trace_idle_gap_cap_seconds,
+                cap_seconds=effective_cap_seconds,
                 flat_plans=flat_plans,
                 end_to_start=end_to_start,
             )

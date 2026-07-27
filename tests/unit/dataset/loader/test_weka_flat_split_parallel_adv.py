@@ -335,6 +335,29 @@ def test_convert_fanout_idle_gap_warp_parallel_byte_identical(tmp_path, monkeypa
     assert w0.turns[2].delay == pytest.approx(10500.0)
 
 
+def test_end_to_start_without_idle_warp_parallel_byte_identical(tmp_path, monkeypatch):
+    """Raw timestamps survive while every split stream drops prior API time."""
+    serial, _parallel = _run_both(
+        tmp_path,
+        monkeypatch,
+        [_trace("trace_end_to_start", _fanout_requests())],
+        end_to_start_delays=True,
+    )
+
+    convs = _by_sid(serial)
+    root = convs["trace_end_to_start"]
+    assert [turn.timestamp for turn in root.turns] == pytest.approx(
+        [0.0, 9000.0, 12000.0]
+    )
+    assert root.turns[0].delay is None
+    assert [turn.delay for turn in root.turns[1:]] == pytest.approx([8000.0, 2000.0])
+
+    worker = convs["trace_end_to_start::fa:000"]
+    assert [turn.timestamp for turn in worker.turns] == pytest.approx([2000.0, 8500.0])
+    assert worker.turns[0].delay is None
+    assert worker.turns[1].delay == pytest.approx(500.0)
+
+
 def test_convert_nonmonotonic_parent_delay_floored_parallel_byte_identical(
     tmp_path, monkeypatch
 ):

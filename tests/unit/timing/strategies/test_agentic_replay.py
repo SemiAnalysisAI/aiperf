@@ -214,6 +214,11 @@ def test_system_idle_cap_shifts_pending_schedule_only_when_globally_idle():
     strategy.enforce_system_idle_cap()
     scheduler.cap_pending_delay.assert_not_called()
 
+    progress.in_flight = 0
+    scheduler.running_count = 1
+    strategy.enforce_system_idle_cap()
+    scheduler.cap_pending_delay.assert_not_called()
+
 
 def test_constructor_accepts_warmup_and_profiling():
     trajectories = [Trajectory(conversation_id="trace_0", start_turn_index=0)]
