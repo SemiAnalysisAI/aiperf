@@ -593,6 +593,7 @@ def _settings_payload_from_user_config(
         # key the cache or a warm entry silently serves the other mode.
         "ignore_trace_delays": inp.ignore_trace_delays,
         "use_think_time_only": inp.use_think_time_only,
+        "use_end_to_start_delays": inp.use_end_to_start_delays,
         "inter_turn_delay_cap_seconds": (
             user_config.loadgen.inter_turn_delay_cap_seconds
         ),

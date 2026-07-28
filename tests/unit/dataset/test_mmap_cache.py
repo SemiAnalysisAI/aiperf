@@ -130,6 +130,8 @@ class TestComputeCacheKey:
         cfg_ignore.input.ignore_trace_delays = True
         cfg_think = cfg.model_copy(deep=True)
         cfg_think.input.use_think_time_only = True
+        cfg_end_to_start = cfg.model_copy(deep=True)
+        cfg_end_to_start.input.use_end_to_start_delays = True
         cfg_cap = cfg.model_copy(deep=True)
         cfg_cap.loadgen.inter_turn_delay_cap_seconds = 60.0
         cfg_warp = cfg.model_copy(deep=True)
@@ -139,6 +141,7 @@ class TestComputeCacheKey:
             base,
             mmap_cache.compute_cache_key_from_user_config(cfg_ignore),
             mmap_cache.compute_cache_key_from_user_config(cfg_think),
+            mmap_cache.compute_cache_key_from_user_config(cfg_end_to_start),
             mmap_cache.compute_cache_key_from_user_config(cfg_cap),
             mmap_cache.compute_cache_key_from_user_config(cfg_warp),
         ]
