@@ -10,6 +10,8 @@ navigation:
         path: ../pages-dev/tutorial.md
       - page: "AIPerf: Comprehensive LLM Benchmarking"
         path: ../pages-dev/comprehensive-llm-benchmarking.md
+      - page: Interactive Chat Sanity Checks
+        path: ../pages-dev/tutorials/interactive-chat.md
       - page: Migrating from GenAI-Perf
         path: ../pages-dev/migrating.md
       - page: GenAI-Perf vs AIPerf CLI Feature Comparison Matrix
@@ -23,6 +25,8 @@ navigation:
             path: ../pages-dev/tutorials/openai-text-endpoints.md
           - page: Profile the OpenAI Responses API with AIPerf
             path: ../pages-dev/tutorials/openai-responses.md
+          - page: Profile the Anthropic Messages API with AIPerf
+            path: ../pages-dev/tutorials/anthropic-messages-endpoint.md
           - page: Profile Hugging Face TGI Models with AIPerf
             path: ../pages-dev/tutorials/huggingface-tgi.md
           - page: Profile Vision Language Models with AIPerf
@@ -96,6 +100,10 @@ navigation:
             path: ../pages-dev/tutorials/prefix-synthesis.md
           - page: Agentic Code Dataset Generator
             path: ../pages-dev/tutorials/agentic-code-generator.md
+          - page: Replay Weka Agentic Coding Traces
+            path: ../pages-dev/tutorials/weka-trace.md
+          - page: InferenceX AgentX MVP Benchmark
+            path: ../pages-dev/tutorials/agentx-mvp.md
       - section: Load Patterns & Scheduling
         collapsed: true
         contents:
@@ -109,6 +117,10 @@ navigation:
             path: ../pages-dev/tutorials/request-rate-concurrency.md
           - page: "Prefill Concurrency: Fine-Grained Benchmarking Control"
             path: ../pages-dev/tutorials/prefill-concurrency.md
+          - page: Adaptive Scale
+            path: ../pages-dev/tutorials/adaptive-scale.md
+          - page: Multi-Phase Workflows
+            path: ../pages-dev/tutorials/multi-phase-workflows.md
           - page: Time-Based Benchmarking
             path: ../pages-dev/tutorials/time-based-benchmarking.md
           - page: Multi-URL Load Balancing
@@ -128,6 +140,8 @@ navigation:
             path: ../pages-dev/tutorials/sweeps.md
           - page: Adaptive Search
             path: ../pages-dev/tutorials/adaptive-search.md
+          - page: Adaptive Scale
+            path: ../pages-dev/tutorials/adaptive-scale.md
           - page: Time Slicing for Performance Analysis
             path: ../pages-dev/tutorials/timeslices.md
           - page: HTTP Trace Metrics Guide
@@ -144,6 +158,8 @@ navigation:
             path: ../pages-dev/tutorials/gpu-telemetry.md
           - page: OpenTelemetry MLflow Integration
             path: ../pages-dev/tutorials/otel-mlflow.md
+          - page: Weights & Biases Export
+            path: ../pages-dev/tutorials/wandb.md
       - section: Configuration
         collapsed: true
         contents:
@@ -173,8 +189,12 @@ navigation:
         path: ../pages-dev/benchmark-modes/timing-modes-reference.md
       - page: Trace Replay with Mooncake Traces
         path: ../pages-dev/benchmark-modes/trace-replay.md
+      - page: Baseten Trace Replay
+        path: ../pages-dev/tutorials/baseten-trace.md
       - page: Conversation DAG Benchmarks
         path: ../pages-dev/benchmark-modes/dag.md
+      - page: "SemiAnalysis AgentX: How the Benchmark Works (FAQ)"
+        path: ../pages-dev/benchmark-modes/semianalysis-agentx-faq.md
   - section: Accuracy
     collapsed: true
     contents:
@@ -189,22 +209,36 @@ navigation:
         path: ../pages-dev/environment-variables.md
       - page: AIPerf Metrics Reference
         path: ../pages-dev/metrics-reference.md
+      - page: GPU Telemetry & Power-Efficiency Dataflow
+        path: ../pages-dev/reference/gpu-telemetry-metrics-dataflow.md
       - page: Benchmark Datasets
         path: ../pages-dev/benchmark-datasets.md
       - page: Pre-Flight Tokenizer Auto Detection
         path: ../pages-dev/reference/tokenizer-auto-detection.md
+      - page: Input Sequence Length (ISL) Tokenization
+        path: ../pages-dev/reference/isl-tokenization.md
+      - page: Prompt Corpus Selection
+        path: ../pages-dev/reference/prompt-corpus.md
+      - page: ISL Budget Compensation Derivation
+        path: ../pages-dev/reference/isl-budget-compensation.md
       - page: Conversation Context Mode
         path: ../pages-dev/reference/conversation-context-mode.md
       - page: List-Metric Aggregation
         path: ../pages-dev/reference/list-metric-aggregation.md
+      - page: Effective vs Active Metrics
+        path: ../pages-dev/reference/effective-vs-active-metrics.md
       - page: Vendor Usage Field Reference
         path: ../pages-dev/reference/vendor-usage-fields.md
+      - page: Per-Request Speculative-Decoding Acceptance
+        path: ../pages-dev/reference/spec-decode-acceptance.md
       - page: JSON Export Schema
         path: ../pages-dev/reference/json-export-schema.md
       - page: HTTP API Endpoints
         path: ../pages-dev/reference/api-endpoints.md
       - page: YAML Config Roadmap
         path: ../pages-dev/reference/yaml-config-roadmap.md
+      - page: Mocking a ROCm Environment
+        path: ../pages-dev/reference/mock-amdsmi.md
   - section: Server Metrics
     collapsed: true
     contents:

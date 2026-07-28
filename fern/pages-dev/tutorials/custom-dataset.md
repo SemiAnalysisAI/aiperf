@@ -6,21 +6,24 @@ sidebar-title: Custom Dataset Guide
 
 # Custom Dataset Guide
 
-Benchmark LLMs with your own data using single-turn requests, multi-turn conversations, or random sampling.
+Benchmark LLMs with your own data using single-turn requests, multi-turn conversations, random sampling, or production trace replay.
 
 ## Overview
 
-AIPerf supports three custom dataset types for benchmarking with your own data:
+AIPerf supports these custom dataset types for benchmarking with your own data:
 
 | Dataset Type | Best For | Multi-Turn | Timing Control | Random Sampling |
 |-------------|----------|-----------|---------------|-----------------|
 | **Single Turn** | Independent single requests | No | Yes | No |
 | **Multi Turn** | Conversations with context | Yes | Yes (per turn) | No |
 | **Random Pool** | Load testing with variety | No | No | Yes |
+| **Mooncake / Bailian / Baseten Trace** | Production trace replay | Yes | Yes | No |
 
-**All three support:**
+**Single Turn, Multi Turn, and Random Pool support:**
 - Client-side batching
 - Automatic media handling: local files are converted to base64 format, while remote URLs are sent directly to the API
+
+Trace replay requests are text-only, so client-side batching and media handling do not apply. See [Trace Replay](../benchmark-modes/trace-replay.md) and [Baseten Trace Replay](baseten-trace.md).
 
 ---
 
@@ -312,6 +315,34 @@ benchmark:
     concurrency: 2
     requests: 100
 ```
+
+### Persistent System Prompt
+
+To apply a system prompt to every turn of a conversation, author it as a leading turn with `"role": "system"`. AIPerf lifts that turn into the conversation-level system message, so it is prepended to every turn's request rather than dispatched as its own (user-less) request:
+
+{/* aiperf-run-vllm-default-openai-endpoint-server */}
+```bash
+cat > system_prompt.jsonl << 'EOF'
+{"session_id": "chat_1", "turns": [{"role": "system", "text": "You are a terse assistant. Answer in one sentence."}, {"text": "What is machine learning?"}, {"text": "Give me an example."}]}
+EOF
+
+aiperf profile \
+    --model Qwen/Qwen3-0.6B \
+    --endpoint-type chat \
+    --input-file system_prompt.jsonl \
+    --custom-dataset-type multi_turn \
+    --streaming \
+    --url localhost:8000 \
+    --concurrency 2 \
+    --request-count 10
+```
+{/* /aiperf-run-vllm-default-openai-endpoint-server */}
+
+**Behavior:**
+- The system prompt persists across all turns and is not counted as a turn (the example above runs 2 turns, not 3).
+- Only a **leading**, **text-only** system turn is hoisted. A `system` turn that appears mid-conversation, one that carries image/audio/video media, or one that sets dispatch-time fields (`timestamp`, `delay`, `output_length`, `extra`) stays a normal turn.
+- Hoisting only takes effect on endpoints that send a system message (`chat`, `responses`, `messages`, `chat_embeddings`). On other endpoints (e.g. `completions`) the leading system turn is left in place, so it is dispatched as a normal turn rather than being silently dropped.
+- The same form works in the inline `records` config.
 
 ---
 
