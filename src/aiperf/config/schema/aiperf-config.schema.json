@@ -1313,7 +1313,7 @@
                         }
                       ],
                       "default": null,
-                      "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. None disables it.",
+                      "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. Mutually exclusive with warmup_requests_per_lane. None disables it.",
                       "title": "Agenticcachewarmupduration"
                     },
                     "warmupRequestsPerLane": {
@@ -1327,7 +1327,7 @@
                         }
                       ],
                       "default": null,
-                      "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Requires agentic_cache_warmup_duration, which remains the safety deadline; warmup stops when either limit is reached.",
+                      "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Mutually exclusive with agentic_cache_warmup_duration.",
                       "title": "Warmuprequestsperlane"
                     },
                     "agenticWarmupGracePeriod": {
@@ -1761,7 +1761,7 @@
                         }
                       ],
                       "default": null,
-                      "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. None disables it.",
+                      "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. Mutually exclusive with warmup_requests_per_lane. None disables it.",
                       "title": "Agenticcachewarmupduration"
                     },
                     "warmupRequestsPerLane": {
@@ -1775,7 +1775,7 @@
                         }
                       ],
                       "default": null,
-                      "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Requires agentic_cache_warmup_duration, which remains the safety deadline; warmup stops when either limit is reached.",
+                      "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Mutually exclusive with agentic_cache_warmup_duration.",
                       "title": "Warmuprequestsperlane"
                     },
                     "agenticWarmupGracePeriod": {
@@ -2277,7 +2277,7 @@
                         }
                       ],
                       "default": null,
-                      "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. None disables it.",
+                      "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. Mutually exclusive with warmup_requests_per_lane. None disables it.",
                       "title": "Agenticcachewarmupduration"
                     },
                     "warmupRequestsPerLane": {
@@ -2291,7 +2291,7 @@
                         }
                       ],
                       "default": null,
-                      "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Requires agentic_cache_warmup_duration, which remains the safety deadline; warmup stops when either limit is reached.",
+                      "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Mutually exclusive with agentic_cache_warmup_duration.",
                       "title": "Warmuprequestsperlane"
                     },
                     "agenticWarmupGracePeriod": {
@@ -2807,7 +2807,7 @@
                         }
                       ],
                       "default": null,
-                      "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. None disables it.",
+                      "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. Mutually exclusive with warmup_requests_per_lane. None disables it.",
                       "title": "Agenticcachewarmupduration"
                     },
                     "warmupRequestsPerLane": {
@@ -2821,7 +2821,7 @@
                         }
                       ],
                       "default": null,
-                      "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Requires agentic_cache_warmup_duration, which remains the safety deadline; warmup stops when either limit is reached.",
+                      "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Mutually exclusive with agentic_cache_warmup_duration.",
                       "title": "Warmuprequestsperlane"
                     },
                     "agenticWarmupGracePeriod": {
@@ -3323,7 +3323,7 @@
                         }
                       ],
                       "default": null,
-                      "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. None disables it.",
+                      "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. Mutually exclusive with warmup_requests_per_lane. None disables it.",
                       "title": "Agenticcachewarmupduration"
                     },
                     "warmupRequestsPerLane": {
@@ -3337,7 +3337,7 @@
                         }
                       ],
                       "default": null,
-                      "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Requires agentic_cache_warmup_duration, which remains the safety deadline; warmup stops when either limit is reached.",
+                      "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Mutually exclusive with agentic_cache_warmup_duration.",
                       "title": "Warmuprequestsperlane"
                     },
                     "agenticWarmupGracePeriod": {
@@ -3816,7 +3816,7 @@
                         }
                       ],
                       "default": null,
-                      "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. None disables it.",
+                      "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. Mutually exclusive with warmup_requests_per_lane. None disables it.",
                       "title": "Agenticcachewarmupduration"
                     },
                     "warmupRequestsPerLane": {
@@ -3830,7 +3830,7 @@
                         }
                       ],
                       "default": null,
-                      "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Requires agentic_cache_warmup_duration, which remains the safety deadline; warmup stops when either limit is reached.",
+                      "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Mutually exclusive with agentic_cache_warmup_duration.",
                       "title": "Warmuprequestsperlane"
                     },
                     "agenticWarmupGracePeriod": {
@@ -5183,7 +5183,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. None disables it.",
+                  "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. Mutually exclusive with warmup_requests_per_lane. None disables it.",
                   "title": "Agenticcachewarmupduration"
                 },
                 "warmupRequestsPerLane": {
@@ -5197,7 +5197,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Requires agentic_cache_warmup_duration, which remains the safety deadline; warmup stops when either limit is reached.",
+                  "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Mutually exclusive with agentic_cache_warmup_duration.",
                   "title": "Warmuprequestsperlane"
                 },
                 "agenticWarmupGracePeriod": {
@@ -5631,7 +5631,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. None disables it.",
+                  "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. Mutually exclusive with warmup_requests_per_lane. None disables it.",
                   "title": "Agenticcachewarmupduration"
                 },
                 "warmupRequestsPerLane": {
@@ -5645,7 +5645,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Requires agentic_cache_warmup_duration, which remains the safety deadline; warmup stops when either limit is reached.",
+                  "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Mutually exclusive with agentic_cache_warmup_duration.",
                   "title": "Warmuprequestsperlane"
                 },
                 "agenticWarmupGracePeriod": {
@@ -6147,7 +6147,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. None disables it.",
+                  "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. Mutually exclusive with warmup_requests_per_lane. None disables it.",
                   "title": "Agenticcachewarmupduration"
                 },
                 "warmupRequestsPerLane": {
@@ -6161,7 +6161,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Requires agentic_cache_warmup_duration, which remains the safety deadline; warmup stops when either limit is reached.",
+                  "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Mutually exclusive with agentic_cache_warmup_duration.",
                   "title": "Warmuprequestsperlane"
                 },
                 "agenticWarmupGracePeriod": {
@@ -6677,7 +6677,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. None disables it.",
+                  "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. Mutually exclusive with warmup_requests_per_lane. None disables it.",
                   "title": "Agenticcachewarmupduration"
                 },
                 "warmupRequestsPerLane": {
@@ -6691,7 +6691,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Requires agentic_cache_warmup_duration, which remains the safety deadline; warmup stops when either limit is reached.",
+                  "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Mutually exclusive with agentic_cache_warmup_duration.",
                   "title": "Warmuprequestsperlane"
                 },
                 "agenticWarmupGracePeriod": {
@@ -7193,7 +7193,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. None disables it.",
+                  "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. Mutually exclusive with warmup_requests_per_lane. None disables it.",
                   "title": "Agenticcachewarmupduration"
                 },
                 "warmupRequestsPerLane": {
@@ -7207,7 +7207,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Requires agentic_cache_warmup_duration, which remains the safety deadline; warmup stops when either limit is reached.",
+                  "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Mutually exclusive with agentic_cache_warmup_duration.",
                   "title": "Warmuprequestsperlane"
                 },
                 "agenticWarmupGracePeriod": {
@@ -7686,7 +7686,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. None disables it.",
+                  "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. Mutually exclusive with warmup_requests_per_lane. None disables it.",
                   "title": "Agenticcachewarmupduration"
                 },
                 "warmupRequestsPerLane": {
@@ -7700,7 +7700,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Requires agentic_cache_warmup_duration, which remains the safety deadline; warmup stops when either limit is reached.",
+                  "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Mutually exclusive with agentic_cache_warmup_duration.",
                   "title": "Warmuprequestsperlane"
                 },
                 "agenticWarmupGracePeriod": {
@@ -8174,7 +8174,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. None disables it.",
+                  "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. Mutually exclusive with warmup_requests_per_lane. None disables it.",
                   "title": "Agenticcachewarmupduration"
                 },
                 "warmupRequestsPerLane": {
@@ -8188,7 +8188,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Requires agentic_cache_warmup_duration, which remains the safety deadline; warmup stops when either limit is reached.",
+                  "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Mutually exclusive with agentic_cache_warmup_duration.",
                   "title": "Warmuprequestsperlane"
                 },
                 "agenticWarmupGracePeriod": {
@@ -8622,7 +8622,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. None disables it.",
+                  "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. Mutually exclusive with warmup_requests_per_lane. None disables it.",
                   "title": "Agenticcachewarmupduration"
                 },
                 "warmupRequestsPerLane": {
@@ -8636,7 +8636,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Requires agentic_cache_warmup_duration, which remains the safety deadline; warmup stops when either limit is reached.",
+                  "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Mutually exclusive with agentic_cache_warmup_duration.",
                   "title": "Warmuprequestsperlane"
                 },
                 "agenticWarmupGracePeriod": {
@@ -9138,7 +9138,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. None disables it.",
+                  "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. Mutually exclusive with warmup_requests_per_lane. None disables it.",
                   "title": "Agenticcachewarmupduration"
                 },
                 "warmupRequestsPerLane": {
@@ -9152,7 +9152,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Requires agentic_cache_warmup_duration, which remains the safety deadline; warmup stops when either limit is reached.",
+                  "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Mutually exclusive with agentic_cache_warmup_duration.",
                   "title": "Warmuprequestsperlane"
                 },
                 "agenticWarmupGracePeriod": {
@@ -9668,7 +9668,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. None disables it.",
+                  "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. Mutually exclusive with warmup_requests_per_lane. None disables it.",
                   "title": "Agenticcachewarmupduration"
                 },
                 "warmupRequestsPerLane": {
@@ -9682,7 +9682,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Requires agentic_cache_warmup_duration, which remains the safety deadline; warmup stops when either limit is reached.",
+                  "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Mutually exclusive with agentic_cache_warmup_duration.",
                   "title": "Warmuprequestsperlane"
                 },
                 "agenticWarmupGracePeriod": {
@@ -10184,7 +10184,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. None disables it.",
+                  "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. Mutually exclusive with warmup_requests_per_lane. None disables it.",
                   "title": "Agenticcachewarmupduration"
                 },
                 "warmupRequestsPerLane": {
@@ -10198,7 +10198,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Requires agentic_cache_warmup_duration, which remains the safety deadline; warmup stops when either limit is reached.",
+                  "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Mutually exclusive with agentic_cache_warmup_duration.",
                   "title": "Warmuprequestsperlane"
                 },
                 "agenticWarmupGracePeriod": {
@@ -10677,7 +10677,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. None disables it.",
+                  "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. Mutually exclusive with warmup_requests_per_lane. None disables it.",
                   "title": "Agenticcachewarmupduration"
                 },
                 "warmupRequestsPerLane": {
@@ -10691,7 +10691,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Requires agentic_cache_warmup_duration, which remains the safety deadline; warmup stops when either limit is reached.",
+                  "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Mutually exclusive with agentic_cache_warmup_duration.",
                   "title": "Warmuprequestsperlane"
                 },
                 "agenticWarmupGracePeriod": {
@@ -11585,7 +11585,7 @@
             }
           ],
           "default": null,
-          "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. None disables it.",
+          "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. Mutually exclusive with warmup_requests_per_lane. None disables it.",
           "title": "Agenticcachewarmupduration",
           "x-jinja2-supported": true
         },
@@ -11610,7 +11610,7 @@
             }
           ],
           "default": null,
-          "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Requires agentic_cache_warmup_duration, which remains the safety deadline; warmup stops when either limit is reached.",
+          "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Mutually exclusive with agentic_cache_warmup_duration.",
           "title": "Warmuprequestsperlane",
           "x-jinja2-supported": true
         },
@@ -12346,7 +12346,7 @@
             }
           ],
           "default": null,
-          "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. None disables it.",
+          "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. Mutually exclusive with warmup_requests_per_lane. None disables it.",
           "title": "Agenticcachewarmupduration",
           "x-jinja2-supported": true
         },
@@ -12371,7 +12371,7 @@
             }
           ],
           "default": null,
-          "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Requires agentic_cache_warmup_duration, which remains the safety deadline; warmup stops when either limit is reached.",
+          "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Mutually exclusive with agentic_cache_warmup_duration.",
           "title": "Warmuprequestsperlane",
           "x-jinja2-supported": true
         },
@@ -14362,7 +14362,7 @@
             }
           ],
           "default": null,
-          "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. None disables it.",
+          "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. Mutually exclusive with warmup_requests_per_lane. None disables it.",
           "title": "Agenticcachewarmupduration",
           "x-jinja2-supported": true
         },
@@ -14387,7 +14387,7 @@
             }
           ],
           "default": null,
-          "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Requires agentic_cache_warmup_duration, which remains the safety deadline; warmup stops when either limit is reached.",
+          "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Mutually exclusive with agentic_cache_warmup_duration.",
           "title": "Warmuprequestsperlane",
           "x-jinja2-supported": true
         },
@@ -15184,7 +15184,7 @@
             }
           ],
           "default": null,
-          "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. None disables it.",
+          "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. Mutually exclusive with warmup_requests_per_lane. None disables it.",
           "title": "Agenticcachewarmupduration",
           "x-jinja2-supported": true
         },
@@ -15209,7 +15209,7 @@
             }
           ],
           "default": null,
-          "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Requires agentic_cache_warmup_duration, which remains the safety deadline; warmup stops when either limit is reached.",
+          "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Mutually exclusive with agentic_cache_warmup_duration.",
           "title": "Warmuprequestsperlane",
           "x-jinja2-supported": true
         },
@@ -17803,7 +17803,7 @@
             }
           ],
           "default": null,
-          "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. None disables it.",
+          "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. Mutually exclusive with warmup_requests_per_lane. None disables it.",
           "title": "Agenticcachewarmupduration",
           "x-jinja2-supported": true
         },
@@ -17828,7 +17828,7 @@
             }
           ],
           "default": null,
-          "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Requires agentic_cache_warmup_duration, which remains the safety deadline; warmup stops when either limit is reached.",
+          "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Mutually exclusive with agentic_cache_warmup_duration.",
           "title": "Warmuprequestsperlane",
           "x-jinja2-supported": true
         },
@@ -21432,7 +21432,7 @@
             }
           ],
           "default": null,
-          "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. None disables it.",
+          "description": "AGENTIC_REPLAY only: additional cache-pressure warmup duration in seconds. After the normal snapshot warmup drains, AIPerf continues the live trajectories without recorded idle delays and with one-token outputs for this long, then drains and resumes profiling from the resulting trajectory state. Read off the profiling phase by ``timing.config._build_agentic_warmup_config``. Mutually exclusive with warmup_requests_per_lane. None disables it.",
           "title": "Agenticcachewarmupduration",
           "x-jinja2-supported": true
         },
@@ -21457,7 +21457,7 @@
             }
           ],
           "default": null,
-          "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Requires agentic_cache_warmup_duration, which remains the safety deadline; warmup stops when either limit is reached.",
+          "description": "AGENTIC_REPLAY only: deterministic cache-pressure warmup request budget per concurrency lane. The total warmup wire-request cap is this value multiplied by the number of live trajectory lanes, including the initial snapshot-priming requests. Mutually exclusive with agentic_cache_warmup_duration.",
           "title": "Warmuprequestsperlane",
           "x-jinja2-supported": true
         },
