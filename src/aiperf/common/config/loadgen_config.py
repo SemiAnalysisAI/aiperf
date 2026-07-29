@@ -503,10 +503,27 @@ class LoadGeneratorConfig(BaseConfig):
             "After the normal snapshot warmup drains, AIPerf continues the live "
             "trajectories without recorded idle delays and with one-token outputs, "
             "then drains and resumes profiling from the resulting trajectory state "
-            "using each live stream's residual next-turn delay.",
+            "using each live stream's residual next-turn delay. Mutually exclusive "
+            "with --warmup-requests-per-lane.",
         ),
         CLIParameter(
             name=("--agentic-cache-warmup-duration",),
+            group=Groups.LOAD_GENERATOR,
+        ),
+    ] = None
+
+    warmup_requests_per_lane: Annotated[
+        int | None,
+        Field(
+            gt=0,
+            description="Deterministic agentic cache-pressure warmup request "
+            "budget per concurrency lane. For example, 10 with concurrency 16 "
+            "caps warmup at 160 wire requests, including initial snapshot "
+            "priming. Mutually exclusive with "
+            "--agentic-cache-warmup-duration.",
+        ),
+        CLIParameter(
+            name=("--warmup-requests-per-lane",),
             group=Groups.LOAD_GENERATOR,
         ),
     ] = None
@@ -917,6 +934,7 @@ class LoadGeneratorConfig(BaseConfig):
         self.warmup_request_count = None
         self.warmup_duration = None
         self.agentic_cache_warmup_duration = None
+        self.warmup_requests_per_lane = None
         self.warmup_num_sessions = None
 
         # Warmup load parameters

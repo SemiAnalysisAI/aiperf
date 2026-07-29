@@ -116,9 +116,12 @@ class PhaseRunner(TaskManagerMixin):
         self._conversation_source = conversation_source
         self._user_config = user_config
         self._session_tree_registry = session_tree_registry
-        cache_warmup_enabled = isinstance(
-            getattr(config, "agentic_cache_warmup_duration_sec", None),
-            int | float,
+        cache_warmup_enabled = (
+            isinstance(
+                getattr(config, "agentic_cache_warmup_duration_sec", None),
+                int | float,
+            )
+            or getattr(config, "warmup_requests_per_lane", None) is not None
         )
 
         # For FIXED_SCHEDULE mode, use actual dataset size instead of config values.
@@ -148,16 +151,22 @@ class PhaseRunner(TaskManagerMixin):
             config.timing_mode == TimingMode.AGENTIC_REPLAY
             and config.phase == CreditPhase.WARMUP
             and isinstance(conversation_source, TrajectorySource)
-            and not cache_warmup_enabled
         ):
-            trajectory_count = conversation_source.warmup_credit_count
-            if (
-                trajectory_count > 0
-                and trajectory_count != config.total_expected_requests
-            ):
+            requests_per_lane = getattr(config, "warmup_requests_per_lane", None)
+            if cache_warmup_enabled and requests_per_lane is not None:
+                request_cap = requests_per_lane * len(conversation_source.trajectories)
                 self._config = self._config.model_copy(
-                    update={"total_expected_requests": trajectory_count}
+                    update={"total_expected_requests": request_cap}
                 )
+            elif not cache_warmup_enabled:
+                trajectory_count = conversation_source.warmup_credit_count
+                if (
+                    trajectory_count > 0
+                    and trajectory_count != config.total_expected_requests
+                ):
+                    self._config = self._config.model_copy(
+                        update={"total_expected_requests": trajectory_count}
+                    )
         self._phase_publisher = phase_publisher
         self._credit_router = credit_router
         self._concurrency_manager = concurrency_manager
@@ -848,11 +857,13 @@ class PhaseRunner(TaskManagerMixin):
             return
         released = self._session_tree_registry.release_all(self._config.phase)
         self.info(
-            lambda: f"Session-tree slots for phase {self._config.phase}: "
-            f"peak_open={self._session_tree_registry.peak_open} "
-            f"(target concurrency {self._config.concurrency}); "
-            f"released {released} still-open at teardown; "
-            f"late_events={self._session_tree_registry.late_events}"
+            lambda: (
+                f"Session-tree slots for phase {self._config.phase}: "
+                f"peak_open={self._session_tree_registry.peak_open} "
+                f"(target concurrency {self._config.concurrency}); "
+                f"released {released} still-open at teardown; "
+                f"late_events={self._session_tree_registry.late_events}"
+            )
         )
 
     def _release_stuck_slots(self) -> None:

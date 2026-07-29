@@ -1574,6 +1574,11 @@
     ],
     [
       "PLR0912",
+      "src/aiperf/timing/strategies/agentic_replay.py",
+      "AgenticReplayStrategy._execute_warmup"
+    ],
+    [
+      "PLR0912",
       "src/aiperf/timing/strategies/request_rate.py",
       "RequestRateStrategy.execute_phase"
     ],
@@ -1796,6 +1801,16 @@
       "PLR0915",
       "src/aiperf/timing/phase/runner.py",
       "PhaseRunner.run"
+    ],
+    [
+      "PLR0915",
+      "src/aiperf/timing/strategies/agentic_replay.py",
+      "AgenticReplayStrategy.__init__"
+    ],
+    [
+      "PLR0915",
+      "src/aiperf/timing/strategies/agentic_replay.py",
+      "AgenticReplayStrategy._execute_warmup"
     ],
     [
       "PLR0915",

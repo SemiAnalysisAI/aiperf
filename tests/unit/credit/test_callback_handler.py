@@ -872,6 +872,40 @@ class TestDagCallbackGuards:
         assert mock_progress.all_credits_returned_event.is_set()
         mock_orchestrator.has_pending_branch_work.assert_called_once_with()
 
+    async def test_cache_warmup_handoff_preserves_non_final_child(
+        self,
+        dag_handler,
+        mock_progress,
+        mock_lifecycle,
+        mock_stop_checker,
+        mock_strategy,
+        mock_orchestrator,
+    ):
+        """A quota-stopped warmup child remains live for profiling handoff."""
+        mock_stop_checker.can_send_child_turn = MagicMock(return_value=False)
+        mock_strategy.wants_returns_after_sending_complete = True
+        mock_orchestrator.has_pending_branch_work = MagicMock(return_value=True)
+        mock_orchestrator.intercept = AsyncMock(return_value=False)
+        mock_orchestrator.on_child_stopped = AsyncMock()
+        dag_handler.register_phase(
+            phase=CreditPhase.WARMUP,
+            progress=mock_progress,
+            lifecycle=mock_lifecycle,
+            stop_checker=mock_stop_checker,
+            strategy=mock_strategy,
+        )
+
+        credit = make_dag_credit(
+            phase=CreditPhase.WARMUP,
+            turn_index=1,
+            num_turns=7,
+            agent_depth=1,
+        )
+        await dag_handler.on_credit_return("worker-1", make_credit_return(credit))
+
+        mock_strategy.handle_credit_return.assert_awaited_once_with(credit, error=None)
+        mock_orchestrator.on_child_stopped.assert_not_awaited()
+
     async def test_child_leaf_reached_called_on_child_final_turn(
         self, registered_dag_handler, mock_orchestrator
     ):

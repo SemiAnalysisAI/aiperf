@@ -174,6 +174,17 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
             if isinstance(cache_warmup_duration, int | float)
             else None
         )
+        cache_warmup_requests_per_lane = getattr(
+            config, "warmup_requests_per_lane", None
+        )
+        self._cache_warmup_requests_per_lane: int | None = (
+            int(cache_warmup_requests_per_lane)
+            if isinstance(cache_warmup_requests_per_lane, int)
+            else None
+        )
+        self._cache_warmup_requests_by_lane: Counter[int] = Counter()
+        self._cache_warmup_request_budget_reached = False
+        self._quota_handoff_starts: dict[str, TurnToSend] = {}
         self._baseline_warmup_returns: dict[str, Credit] = {}
         self._baseline_correlations: set[str] = set()
         self._accelerated_warmup_started = False
@@ -262,20 +273,24 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
             )
 
     @property
+    def _cache_warmup_enabled(self) -> bool:
+        """Whether either accelerated cache-pressure warmup mode is active."""
+        return (
+            self._cache_warmup_duration is not None
+            or self._cache_warmup_requests_per_lane is not None
+        )
+
+    @property
     def _has_tree_registry(self) -> bool:
-        """True when per-tree session-slot accounting is engaged (PROFILING)."""
+        """True when per-tree session-slot accounting is engaged."""
         return self._session_tree_registry is not None and (
-            self.config.phase == CreditPhase.PROFILING
-            or self._cache_warmup_duration is not None
+            self.config.phase == CreditPhase.PROFILING or self._cache_warmup_enabled
         )
 
     @property
     def wants_returns_after_sending_complete(self) -> bool:
         """Pressure warmup returns must be observed to build the handoff state."""
-        return (
-            self.config.phase == CreditPhase.WARMUP
-            and self._cache_warmup_duration is not None
-        )
+        return self.config.phase == CreditPhase.WARMUP and self._cache_warmup_enabled
 
     @property
     def allows_pending_branch_handoff_after_sending_complete(self) -> bool:
@@ -379,6 +394,11 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         """
         if self._has_tree_registry:
             self._session_tree_registry.set_drain_callback(self._on_tree_drained)
+        if (
+            self.config.phase == CreditPhase.WARMUP
+            and self._cache_warmup_requests_per_lane is not None
+        ):
+            self.credit_issuer.set_turn_admission(self._admit_cache_warmup_turn)
         if self.config.phase == CreditPhase.PROFILING:
             for trajectory in self.conversation_source.trajectories:
                 self._seed_trajectory_replay_prefix(trajectory)
@@ -402,6 +422,49 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
                     f"still count toward concurrency); rootless lanes recycle into a "
                     f"fresh root once their background subagents drain"
                 )
+
+    def _cache_warmup_lane(self, turn_or_credit: TurnToSend | Credit) -> int:
+        """Resolve a warmup turn or credit to its stable trajectory lane."""
+        lane = self._root_to_lane.get(turn_or_credit.effective_root_correlation_id)
+        if lane is None:
+            lane = self._correlation_to_lane.get(turn_or_credit.x_correlation_id)
+        if lane is None:
+            raise RuntimeError(
+                "Agentic cache warmup could not resolve a request to a "
+                f"trajectory lane: correlation_id={turn_or_credit.x_correlation_id!r}, "
+                "root_correlation_id="
+                f"{turn_or_credit.effective_root_correlation_id!r}"
+            )
+        return lane
+
+    def _admit_cache_warmup_turn(self, turn: TurnToSend) -> bool:
+        """Atomically reserve one request from a lane's deterministic quota."""
+        assert self._cache_warmup_requests_per_lane is not None
+        lane = self._cache_warmup_lane(turn)
+        if (
+            self._cache_warmup_requests_by_lane[lane]
+            >= self._cache_warmup_requests_per_lane
+        ):
+            if turn.agent_depth == 0 and (
+                turn.turn_index == 0 or turn.is_session_start
+            ):
+                self._quota_handoff_starts[turn.effective_root_correlation_id] = turn
+            return False
+        self._cache_warmup_requests_by_lane[lane] += 1
+        if not self._cache_warmup_request_budget_reached and all(
+            self._cache_warmup_requests_by_lane[lane_index]
+            >= self._cache_warmup_requests_per_lane
+            for lane_index in range(len(self.conversation_source.trajectories))
+        ):
+            self._cache_warmup_request_budget_reached = True
+            self.credit_issuer.replay_gate.pause_releases()
+            self.info(
+                "WARMUP cache pressure request budget reached: "
+                f"{self._cache_warmup_requests_per_lane} requests on each of "
+                f"{len(self.conversation_source.trajectories)} lanes; "
+                "draining requests"
+            )
+        return True
 
     async def execute_phase(self) -> None:
         """Dispatch initial credits for the phase."""
@@ -467,9 +530,19 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         PROFILING dispatch offsets are NOT clamped this way -- see
         :meth:`_leading_idle_shift_ms`.
         """
-        if self._phase_offset_cap_ms is not None:
-            return min(lead_ms, self._phase_offset_cap_ms)
-        return lead_ms
+        caps_ms = [
+            cap
+            for cap in (
+                self._phase_offset_cap_ms,
+                (
+                    self._system_idle_gap_cap_seconds * MILLIS_PER_SECOND
+                    if self._system_idle_gap_cap_seconds is not None
+                    else None
+                ),
+            )
+            if cap is not None
+        ]
+        return min(lead_ms, *caps_ms) if caps_ms else lead_ms
 
     def _leading_idle_shift_ms(self, offsets: Iterable[float]) -> float:
         """Excess to subtract UNIFORMLY from every PROFILING dispatch offset so
@@ -573,6 +646,31 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
                 self._baseline_correlations.add(turn.x_correlation_id)
                 self._root_to_lane[turn.effective_root_correlation_id] = lane
 
+        if self._cache_warmup_requests_per_lane is not None:
+            baseline_counts = Counter(
+                self._cache_warmup_lane(turn) for turn, _ in prepared
+            )
+            oversized = {
+                lane: count
+                for lane, count in baseline_counts.items()
+                if count > self._cache_warmup_requests_per_lane
+            }
+            if oversized:
+                raise ValueError(
+                    "Agentic cache warmup requests-per-lane budget is smaller "
+                    "than the required snapshot-priming dispatch count for "
+                    f"lane(s) {oversized}; increase "
+                    "--warmup-requests-per-lane."
+                )
+
+        if not prepared:
+            if self._cache_warmup_enabled:
+                await self._start_accelerated_warmup()
+                return
+            self.info("WARMUP execute: no requests precede t*; nothing to warm")
+            self.credit_issuer.mark_sending_complete()
+            return
+
         # Pass 2: dispatch.
         if not spread:
             self.info(
@@ -613,7 +711,7 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         self, prepared: list[tuple[TurnToSend, float | None]]
     ) -> None:
         """Finish burst warmup or enter cache pressure when no priming exists."""
-        if self._cache_warmup_duration is None:
+        if not self._cache_warmup_enabled:
             if not self.lifecycle.is_sending_complete:
                 self.lifecycle.mark_sending_complete()
             return
@@ -622,30 +720,37 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
     async def _start_accelerated_warmup_if_empty(
         self, prepared: list[tuple[TurnToSend, float | None]]
     ) -> None:
-        if not prepared and self._cache_warmup_duration is not None:
+        if not prepared and self._cache_warmup_enabled:
             await self._start_accelerated_warmup()
 
     async def _start_accelerated_warmup(self) -> None:
         """Continue the sampled trajectories under compressed warmup traffic."""
         if self._accelerated_warmup_started:
             return
-        assert self._cache_warmup_duration is not None
+        assert self._cache_warmup_enabled
         self._accelerated_warmup_started = True
         for trajectory in self.conversation_source.trajectories:
             self._seed_trajectory_replay_prefix(trajectory)
         self.credit_issuer.replay_gate.activate()
         self.credit_issuer.set_max_tokens_override(_WARMUP_MAX_TOKENS)
+        if self._cache_warmup_duration is not None:
+            limit = f"for {self._cache_warmup_duration:.1f}s"
+        else:
+            limit = (
+                f"until each lane reaches "
+                f"{self._cache_warmup_requests_per_lane} requests"
+            )
         self.info(
-            "WARMUP cache pressure: replaying live trajectories for "
-            f"{self._cache_warmup_duration:.1f}s with zero idle delay and "
-            f"max_tokens={_WARMUP_MAX_TOKENS}"
+            "WARMUP cache pressure: replaying live trajectories "
+            f"{limit} with zero idle delay and max_tokens={_WARMUP_MAX_TOKENS}"
         )
         if self.branch_orchestrator is not None:
             self.branch_orchestrator.start_accelerated_warmup()
-        self.scheduler.schedule_later(
-            self._cache_warmup_duration,
-            self._finish_accelerated_warmup(),
-        )
+        if self._cache_warmup_duration is not None:
+            self.scheduler.schedule_later(
+                self._cache_warmup_duration,
+                self._finish_accelerated_warmup(),
+            )
         results = await asyncio.gather(
             *(
                 self._dispatch_accelerated_trajectory(trajectory, lane)
@@ -902,6 +1007,9 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
             pending_by_root = dict(pending_by_root_getter())
         else:
             pending_by_root = {}
+        for root_correlation_id, turn in self._quota_handoff_starts.items():
+            pending_by_root.setdefault(root_correlation_id, ())
+            pending_by_root[root_correlation_id] += (turn,)
         pending_turns_getter = getattr(
             self.credit_issuer.replay_gate, "pending_turns", None
         )
@@ -1297,7 +1405,7 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
 
     async def _handle_warmup_return(self, credit: Credit) -> None:
         """Advance baseline warmup into the optional cache-pressure stage."""
-        if self._cache_warmup_duration is None:
+        if not self._cache_warmup_enabled:
             return
         if self._accelerated_warmup_started:
             await self._handle_accelerated_warmup_return(credit)
@@ -1337,16 +1445,16 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
     async def _issue_child_continuation_or_drain(self, turn: TurnToSend) -> None:
         """Single child-issuance chokepoint (dataflow-inspired IssuanceAuthority).
 
-        Dispatch a DAG child continuation via ``dispatch_child_turn`` (which
-        returns a clean True-iff-on-wire, avoiding ``issue_credit``'s overloaded
-        False) and, on ANY refusal (e.g. the ``--request-count`` wire cap), notify
-        ``BranchOrchestrator.on_child_stopped`` so the parent's join drains
-        deterministically rather than deadlocking on a child whose remaining
-        turns will never be issued. Centralizing here means no dispatch site can
-        "forget" to drain on refusal.
+        Dispatch a DAG child continuation via ``dispatch_child_turn``. Terminal
+        refusals notify the orchestrator so the parent's join drains. Warmup
+        quota refusals remain resumable across the profiling handoff.
         """
         on_wire = await self.credit_issuer.dispatch_child_turn(turn)
-        if not on_wire and self.branch_orchestrator is not None:
+        if (
+            not on_wire
+            and self.branch_orchestrator is not None
+            and not self.allows_pending_branch_handoff_after_sending_complete
+        ):
             await self.branch_orchestrator.on_child_stopped(turn.x_correlation_id)
 
     async def _spawn_from_recycle_or_id(

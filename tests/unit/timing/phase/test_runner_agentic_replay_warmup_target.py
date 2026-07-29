@@ -140,6 +140,22 @@ class TestAgenticReplayWarmupTarget:
         runner = _make_runner(config, src)
         assert runner._config.total_expected_requests == 4
 
+    async def test_cache_warmup_target_uses_actual_lane_count(self) -> None:
+        """The request budget uses the actual wrap-filled trajectory lane count."""
+        src = MagicMock(spec=TrajectorySource)
+        src.dataset_metadata = _make_dataset_metadata({"a": 2, "b": 2, "c": 2})
+        src.trajectories = [MagicMock(), MagicMock(), MagicMock()]
+        config = _warmup_config(concurrency=4).model_copy(
+            update={
+                "warmup_requests_per_lane": 10,
+                "total_expected_requests": 40,
+            }
+        )
+
+        runner = _make_runner(config, src)
+
+        assert runner._config.total_expected_requests == 30
+
     async def test_short_traces_skipped_below_concurrency_wrap_fills(self) -> None:
         """Pool of 6 with one 1-turn trace, concurrency=8: wrap-fill to 8 lanes.
 
