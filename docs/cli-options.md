@@ -1130,7 +1130,7 @@ Additional agentic replay warmup duration in seconds. After the normal snapshot 
 
 #### `--warmup-requests-per-lane` `<int>`
 
-Deterministic agentic cache-pressure warmup request budget per concurrency lane. For example, 10 with concurrency 16 caps warmup at 160 wire requests, including initial snapshot priming. Mutually exclusive with --agentic-cache-warmup-duration.
+Deterministic agentic cache-pressure warmup request budget per concurrency lane, additional to mandatory snapshot primers. For example, 10 with concurrency 16 sends 160 additional cache-pressure requests after the primers. Mutually exclusive with --agentic-cache-warmup-duration.
 <br/>_Constraints: > 0_
 
 #### `--agentic-warmup-grace-period` `<float>`
@@ -2665,7 +2665,7 @@ Additional agentic replay warmup duration in seconds. After the normal snapshot 
 
 #### `--warmup-requests-per-lane` `<int>`
 
-Deterministic agentic cache-pressure warmup request budget per concurrency lane. For example, 10 with concurrency 16 caps warmup at 160 wire requests, including initial snapshot priming. Mutually exclusive with --agentic-cache-warmup-duration.
+Deterministic agentic cache-pressure warmup request budget per concurrency lane, additional to mandatory snapshot primers. For example, 10 with concurrency 16 sends 160 additional cache-pressure requests after the primers. Mutually exclusive with --agentic-cache-warmup-duration.
 <br/>_Constraints: > 0_
 
 #### `--agentic-warmup-grace-period` `<float>`
