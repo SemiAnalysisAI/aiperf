@@ -108,6 +108,11 @@
     ],
     [
       "file-size",
+      "src/aiperf/credit/issuer.py",
+      ""
+    ],
+    [
+      "file-size",
       "src/aiperf/credit/sticky_router.py",
       ""
     ],

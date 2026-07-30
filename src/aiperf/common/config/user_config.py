@@ -1215,12 +1215,18 @@ class UserConfig(BaseConfig):
     @model_validator(mode="after")
     def validate_agentic_cache_warmup(self) -> Self:
         """Restrict accelerated cache warmup to agentic replay."""
-        if self.loadgen.agentic_cache_warmup_duration is None:
+        has_duration = self.loadgen.agentic_cache_warmup_duration is not None
+        has_request_budget = self.loadgen.warmup_requests_per_lane is not None
+        if not has_duration and not has_request_budget:
             return self
+        if has_duration and has_request_budget:
+            raise ValueError(
+                "--warmup-requests-per-lane and "
+                "--agentic-cache-warmup-duration are mutually exclusive."
+            )
         if self.timing_mode != TimingMode.AGENTIC_REPLAY:
             raise ValueError(
-                "--agentic-cache-warmup-duration requires the agentic_replay "
-                "timing mode."
+                "agentic cache warmup requires the agentic_replay timing mode."
             )
         return self
 

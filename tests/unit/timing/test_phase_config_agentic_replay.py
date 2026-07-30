@@ -22,6 +22,7 @@ def _ar_user_config(
     cfg.loadgen.warmup_request_count = None
     cfg.loadgen.warmup_duration = None
     cfg.loadgen.agentic_cache_warmup_duration = None
+    cfg.loadgen.warmup_requests_per_lane = None
     cfg.loadgen.warmup_num_sessions = None
     cfg.loadgen.warmup_concurrency = None
     cfg.loadgen.warmup_prefill_concurrency = None
@@ -104,6 +105,18 @@ def test_cache_warmup_uses_strategy_controlled_stop() -> None:
     assert warmup.total_expected_requests is None
     assert warmup.agentic_cache_warmup_duration_sec == 600.0
     assert warmup.grace_period_sec == 300.0
+
+
+def test_cache_warmup_request_budget_scales_with_concurrency() -> None:
+    cfg = _ar_user_config(concurrency=16)
+    cfg.loadgen.warmup_requests_per_lane = 10
+
+    warmup = _build_warmup_config(cfg)
+
+    assert warmup is not None
+    assert warmup.total_expected_requests == 160
+    assert warmup.agentic_cache_warmup_duration_sec is None
+    assert warmup.warmup_requests_per_lane == 10
 
 
 def test_cache_warmup_grace_uses_short_duration_without_benchmark_grace() -> None:

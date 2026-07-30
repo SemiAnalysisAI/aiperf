@@ -280,8 +280,10 @@ class CreditCallbackHandler:
             return
         self._warmup_abort_triggered = True
         _logger.warning(
-            lambda: f"Terminal warmup failure for trace {credit.conversation_id}; "
-            f"aborting run early (broadcasting ProfileCancelCommand)."
+            lambda: (
+                f"Terminal warmup failure for trace {credit.conversation_id}; "
+                f"aborting run early (broadcasting ProfileCancelCommand)."
+            )
         )
         try:
             await self._on_warmup_abort()
@@ -316,16 +318,20 @@ class CreditCallbackHandler:
         handler = self._phase_handlers.get(phase)
         if not handler:
             _logger.debug(
-                lambda: f"Credit return for unregistered phase {phase}, "
-                f"credit_id={credit.id}, worker={worker_id}"
+                lambda: (
+                    f"Credit return for unregistered phase {phase}, "
+                    f"credit_id={credit.id}, worker={worker_id}"
+                )
             )
             return
 
         # Late arrivals after phase complete are logged but don't affect counts
         if handler.lifecycle.is_complete:
             _logger.warning(
-                lambda: f"Credit return after phase {phase} complete, "
-                f"credit_id={credit.id}, worker={worker_id}"
+                lambda: (
+                    f"Credit return after phase {phase} complete, "
+                    f"credit_id={credit.id}, worker={worker_id}"
+                )
             )
             return
 
@@ -399,9 +405,11 @@ class CreditCallbackHandler:
                     )
             except Exception as exc:  # noqa: BLE001
                 _logger.warning(
-                    lambda exc=exc: f"BranchOrchestrator child-completion "
-                    f"hook failed for x_correlation_id="
-                    f"{credit.x_correlation_id}: {exc}"
+                    lambda exc=exc: (
+                        f"BranchOrchestrator child-completion "
+                        f"hook failed for x_correlation_id="
+                        f"{credit.x_correlation_id}: {exc}"
+                    )
                 )
 
         observe_credit_return = getattr(handler.strategy, "observe_credit_return", None)
@@ -450,23 +458,26 @@ class CreditCallbackHandler:
         # behind ``can_send_child_turn`` instead — the phase-level
         # sending-complete flag is driven by root sampling exhaustion, not
         # by DAG work, but the global ``--request-count`` cap still
-        # applies. When the cap blocks a non-final child continuation, we
-        # notify the orchestrator (``on_child_stopped``) so the parent's
-        # join still drains instead of deadlocking on a child whose
-        # remaining turns will never be issued. Final-turn child returns
-        # are always passed through (the strategy is a no-op for them, but
-        # observer hooks still need to fire).
+        # applies. In terminal phases, a blocked non-final child notifies the
+        # orchestrator (``on_child_stopped``) so the parent's join can drain.
+        # Strategies requesting stopped returns (such as quota warmup) instead
+        # preserve resumable children across a phase handoff. Final-turn child
+        # returns are always passed through.
+        wants_stopped_returns = (
+            getattr(handler.strategy, "wants_returns_after_sending_complete", False)
+            is True
+        )
         is_child = credit.agent_depth > 0
         if not is_child:
-            wants_stopped_returns = (
-                getattr(handler.strategy, "wants_returns_after_sending_complete", False)
-                is True
-            )
             if handler.stop_checker.can_send_any_turn() or wants_stopped_returns:
                 await handler.strategy.handle_credit_return(
                     credit, error=credit_return.error
                 )
-        elif credit.is_final_turn or handler.stop_checker.can_send_child_turn():
+        elif (
+            credit.is_final_turn
+            or handler.stop_checker.can_send_child_turn()
+            or wants_stopped_returns
+        ):
             await handler.strategy.handle_credit_return(
                 credit, error=credit_return.error
             )
@@ -477,9 +488,11 @@ class CreditCallbackHandler:
                 )
             except Exception as exc:  # noqa: BLE001
                 _logger.warning(
-                    lambda exc=exc: f"BranchOrchestrator on_child_stopped "
-                    f"hook failed for x_correlation_id="
-                    f"{credit.x_correlation_id}: {exc}"
+                    lambda exc=exc: (
+                        f"BranchOrchestrator on_child_stopped "
+                        f"hook failed for x_correlation_id="
+                        f"{credit.x_correlation_id}: {exc}"
+                    )
                 )
 
         # WARMUP terminal-failure accumulation + live early-abort (agentic replay).
@@ -587,7 +600,9 @@ class CreditCallbackHandler:
             in_flight = handler.progress.in_flight_sessions
             if in_flight > 0:
                 _logger.debug(
-                    lambda: f"Releasing {in_flight} in-flight session slots for phase {phase}"
+                    lambda: (
+                        f"Releasing {in_flight} in-flight session slots for phase {phase}"
+                    )
                 )
                 for _ in range(in_flight):
                     concurrency.release_session_slot(phase)
@@ -611,8 +626,10 @@ class CreditCallbackHandler:
 
         if not handler:
             _logger.debug(
-                lambda: f"TTFT for unregistered phase {phase}, "
-                f"credit_id={first_token.credit_id}"
+                lambda: (
+                    f"TTFT for unregistered phase {phase}, "
+                    f"credit_id={first_token.credit_id}"
+                )
             )
             return
 

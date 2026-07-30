@@ -266,6 +266,13 @@ limited to one output token. When the duration expires, it stops issuing new
 requests, drains requests already on the wire, snapshots each live root,
 subagent, and unresolved join, and starts profiling from that exact state.
 
+For repeatable warmup depth, use
+`--warmup-requests-per-lane REQUESTS` instead. Each concurrency lane issues
+exactly that many warmup requests, including snapshot priming. For example,
+16 lanes with 10 requests per lane produce 160 warmup requests.
+
+The duration and per-lane request options are mutually exclusive.
+
 These requests remain part of `warmup`, so they are excluded from exported
 request metrics. The option is disabled by default.
 

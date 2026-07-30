@@ -221,6 +221,13 @@ class CreditPhaseConfig(AIPerfBaseModel):
         description="Duration of the accelerated cache-pressure substage for "
         "agentic replay warmup.",
     )
+    warmup_requests_per_lane: int | None = Field(
+        default=None,
+        gt=0,
+        description="Deterministic cache-pressure warmup wire-request budget "
+        "per live agentic replay lane. Mutually exclusive with "
+        "agentic_cache_warmup_duration_sec.",
+    )
 
 
 def _agentic_warmup_grace_period(loadgen: LoadGeneratorConfig) -> float | None:
@@ -241,12 +248,25 @@ def _agentic_warmup_grace_period(loadgen: LoadGeneratorConfig) -> float | None:
 
 def _build_agentic_warmup_config(loadgen: LoadGeneratorConfig) -> CreditPhaseConfig:
     cache_warmup_duration = loadgen.agentic_cache_warmup_duration
+    requests_per_lane = loadgen.warmup_requests_per_lane
+    cache_warmup_request_cap = (
+        loadgen.concurrency * requests_per_lane
+        if loadgen.concurrency is not None and requests_per_lane is not None
+        else None
+    )
+    if cache_warmup_request_cap is not None:
+        total_expected_requests = cache_warmup_request_cap
+    elif cache_warmup_duration is not None:
+        total_expected_requests = None
+    else:
+        total_expected_requests = loadgen.concurrency
     return CreditPhaseConfig(
         phase=CreditPhase.WARMUP,
         timing_mode=TimingMode.AGENTIC_REPLAY,
-        total_expected_requests=(
-            None if cache_warmup_duration is not None else loadgen.concurrency
-        ),
+        # Duration mode is strategy-terminated by its timer. Count mode uses
+        # the generic request-count stop condition as a global backstop while
+        # the agentic strategy independently enforces each lane's quota.
+        total_expected_requests=total_expected_requests,
         expected_duration_sec=None,
         expected_num_sessions=None,
         concurrency=loadgen.concurrency,
@@ -257,6 +277,7 @@ def _build_agentic_warmup_config(loadgen: LoadGeneratorConfig) -> CreditPhaseCon
         seamless=False,
         grace_period_sec=_agentic_warmup_grace_period(loadgen),
         agentic_cache_warmup_duration_sec=cache_warmup_duration,
+        warmup_requests_per_lane=requests_per_lane,
     )
 
 
