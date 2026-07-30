@@ -20,11 +20,10 @@ aren't captured yet), so only that turn's delta is sent and the t* prefix is
 not reproduced. This includes parents gated on a child join (they sent turn
 n-1 before t* and resume at the join turn during PROFILING, so n-1 warms that
 turn). Streams whose first request is at/after t* (``next_turn_index == 0``)
-have nothing to warm. By default the priming requests BURST together so the
-configured lanes become active inside the benchmark window. When
-``burst_phase_starts`` is false, requests are spread and aligned globally on
-t* so every trajectory's t* lands at the warmup end (see ``_execute_warmup``).
-The phase exits via the standard
+have nothing to warm. By default the priming
+requests are SPREAD -- aligned globally on t* so every trajectory's t* lands
+at the warmup end (see ``_execute_warmup``); ``--burst-phase-starts`` fires
+them all at once instead. The phase exits via the standard
 ``SendingCompleteStopCondition`` plus ``grace_period_sec=inf`` semantics
 already in CreditPhaseConfig (count-driven: every turn-n-1 must return).
 
@@ -37,10 +36,9 @@ aborts PROFILING so steady-state metrics aren't silently biased by a
 degraded trajectory pool.
 
 PROFILING: each stream resumes at its first turn at/after t*
-(``next_turn_index``). Default dispatch collapses each lane's first eligible
-request to profiling-time 0. When ``burst_phase_starts`` is false, dispatch
-preserves the stream's recorded offset from the replay boundary. Accelerated
-cache warmup synthesizes a
+(``next_turn_index``). Default dispatch preserves the stream's recorded offset
+from the replay boundary; ``--burst-phase-starts`` collapses each lane's first
+eligible request to profiling-time 0. Accelerated cache warmup synthesizes a
 new replay boundary at the warmup handoff and carries each live stream's
 residual next-turn delay into profiling, so the handoff ramps instead of
 firing every live stream at once. Subsequent turns honor trace inter-turn
@@ -212,8 +210,13 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         self._benchmark_id: str = (
             user_config.benchmark_id if user_config is not None else "unknown"
         )
-        # Real loadgen configs default to burst. Missing/mocked configs retain
-        # the spread fallback used by isolated strategy callers.
+        # ``--burst-phase-starts`` (loadgen.burst_phase_starts). Default False:
+        # the WARMUP and PROFILING phase starts are SPREAD by each request's
+        # recorded offset from t* (warmup globally t*-aligned, profiling
+        # preserving each lane's leading gap). When True, both phase starts
+        # collapse into synchronized bursts. Governs ONLY the two phase-start
+        # dispatch patterns; the rest of replay timing is faithful regardless.
+        # ``is True`` guards MagicMock/None test configs -> default (spread).
         loadgen = getattr(user_config, "loadgen", None)
         self._burst_phase_starts: bool = (
             getattr(loadgen, "burst_phase_starts", False) is True
@@ -1444,12 +1447,14 @@ class AgenticReplayStrategy(AIPerfLoggerMixin):
         Each stream profiles from turn ``next_turn_index`` (the first turn at
         or after t*; its predecessor, if any, was primed during WARMUP).
 
-        By default, the trajectory's earliest post-t* request is anchored at
-        profiling-time 0 so every lane starts together. When
-        ``burst_phase_starts`` is false, ``t0_offset = 0`` and each stream waits
-        out its recorded offset from t*. Relative timing among the trajectory's
-        streams and turns is identical either way -- only the per-lane start
-        offset differs.
+        Dispatch anchoring depends on ``--burst-phase-starts``: by default
+        (spread) ``t0_offset = 0`` so each stream waits out its recorded offset
+        from t* -- the leading t*->first-request gap is preserved and lanes
+        ramp in. With ``--burst-phase-starts`` the trajectory's earliest
+        post-t* request is anchored at profiling-time 0 (subtracting T0, the
+        min offset) so the lane bursts at once. Relative timing among the
+        trajectory's streams and turns is identical either way -- only the
+        per-lane start offset differs.
 
         Gated parents (``waiting_on_children``) are not dispatched here; their
         join is seeded with the orchestrator and their gated turn fires when
