@@ -15,6 +15,7 @@ Includes:
 - StickyCreditRouter: Main router class
 """
 
+import asyncio
 import time
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
@@ -274,6 +275,36 @@ class StickyCreditRouter(CommunicationMixin):
         """Set callback for first token events (enables prefill concurrency release)."""
         self._on_first_token_callback = callback
 
+    async def _await_workers_registered(
+        self, timeout_s: float = 60.0, poll_s: float = 0.05
+    ) -> None:
+        """Wait until at least one worker has registered.
+
+        A phase-start burst dispatch can outrun worker registration: workers
+        announce themselves with ``WorkerReady`` over ZMQ *after* the timing
+        manager begins issuing credits (measured 0.4-0.9s of skew, widening
+        with concurrency because more workers must register).
+
+        Raising from ``send_credit`` in that window is unrecoverable: the
+        caller (``AgenticReplayTiming._execute_warmup``) issues credits in a
+        *sequential* ``await`` loop, so the exception aborts the whole burst and
+        the remaining credits are never attempted. Worse, ``increment_sent``
+        has already run for the failed credit, so it stays counted as in-flight
+        with no timeout -- the run hangs forever with no error surfaced
+        (server side sees no request at all).
+
+        Waiting turns that race into a sub-second delay.
+        """
+        waited = 0.0
+        while not self._workers and waited < timeout_s:
+            await asyncio.sleep(poll_s)
+            waited += poll_s
+        if self._workers:
+            self.info(
+                f"Waited {waited:.2f}s for worker registration "
+                f"({len(self._workers)} workers) before routing credits"
+            )
+
     async def send_credit(self, credit: Credit) -> None:
         """Determine the worker based on sticky sessions or least-loaded and send the credit to the worker.
 
@@ -282,6 +313,10 @@ class StickyCreditRouter(CommunicationMixin):
         - Updates the worker load and sticky sessions
         - Sends the credit to the worker
         """
+        if not self._workers:
+            # Phase-start bursts can precede worker registration; wait instead
+            # of raising (see _await_workers_registered for why raising hangs).
+            await self._await_workers_registered()
         if not self._workers:
             raise RuntimeError("No workers available for routing")
 
