@@ -1281,6 +1281,7 @@ async def test_profiling_snapshot_dispatches_inflight_child_and_seeds_join():
         conversation_id="trace_0",
         x_correlation_id="parent",
         next_turn_index=2,
+        next_dispatch_offset_ms=181_430.0,
         agent_depth=0,
         waiting_on_children=True,
         join_target_turn_index=2,
@@ -1289,7 +1290,7 @@ async def test_profiling_snapshot_dispatches_inflight_child_and_seeds_join():
         conversation_id="trace_0::sa:0",
         x_correlation_id="child",
         next_turn_index=1,
-        next_dispatch_offset_ms=500.0,
+        next_dispatch_offset_ms=0.0,
         agent_depth=1,
         parent_correlation_id="parent",
         join_target_turn_index=2,
@@ -1370,6 +1371,9 @@ async def test_profiling_snapshot_dispatches_inflight_child_and_seeds_join():
     assert seeded_states[1].x_correlation_id == "child"
     assert seeded_states[0].waiting_on_children is True
     assert seeded_states[1].parent_correlation_id == seeded_states[0].x_correlation_id
+    assert branch_orchestrator.seed_snapshot.call_args.kwargs[
+        "join_release_delays_ms"
+    ] == {"parent": pytest.approx(181_430.0)}
 
 
 @pytest.mark.asyncio
