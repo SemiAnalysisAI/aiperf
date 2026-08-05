@@ -7,10 +7,11 @@ from aiperf.common.models.record_models import ParsedResponseRecord
 from aiperf.metrics import BaseDerivedMetric, BaseRecordMetric
 from aiperf.metrics.metric_dicts import MetricRecordDict, MetricResultsDict
 from aiperf.metrics.types.benchmark_duration_metric import BenchmarkDurationMetric
-from aiperf.metrics.types.decode_duration_metric import FullDecodeDurationMetric
-from aiperf.metrics.types.inter_token_latency_metric import InterTokenLatencyMetric
+from aiperf.metrics.types.inter_token_latency_metric import (
+    FullResponseInterTokenLatencyMetric,
+    InterTokenLatencyMetric,
+)
 from aiperf.metrics.types.output_sequence_length_metric import (
-    OutputSequenceLengthMetric,
     TotalOutputSequenceLengthMetric,
 )
 
@@ -81,7 +82,7 @@ class OutputTokenThroughputPerUserMetric(BaseRecordMetric[float]):
 
 
 class FullResponseOutputTokenThroughputPerUserMetric(BaseRecordMetric[float]):
-    """Token rate from first parsed content through full request completion."""
+    """Inverse of full-response inter-token latency."""
 
     tag = "full_response_output_token_throughput_per_user"
     header = "Full-Response Output Token Throughput Per User"
@@ -91,8 +92,7 @@ class FullResponseOutputTokenThroughputPerUserMetric(BaseRecordMetric[float]):
     display_order = 520
     flags = MetricFlags.STREAMING_TOKENS_ONLY | MetricFlags.LARGER_IS_BETTER
     required_metrics = {
-        FullDecodeDurationMetric.tag,
-        OutputSequenceLengthMetric.tag,
+        FullResponseInterTokenLatencyMetric.tag,
     }
 
     def _parse_record(
@@ -100,16 +100,12 @@ class FullResponseOutputTokenThroughputPerUserMetric(BaseRecordMetric[float]):
         record: ParsedResponseRecord,
         record_metrics: MetricRecordDict,
     ) -> float:
-        osl = record_metrics.get_or_raise(OutputSequenceLengthMetric)
-        if osl < 2:  # type: ignore
-            raise NoMetricValue(f"Output sequence length must be at least 2, got {osl}")
-
-        duration = record_metrics.get_converted_or_raise(
-            FullDecodeDurationMetric,
+        converted_itl = record_metrics.get_converted_or_raise(
+            FullResponseInterTokenLatencyMetric,
             self.unit.time_unit,  # type: ignore
         )
-        if duration == 0:
+        if converted_itl == 0:
             raise NoMetricValue(
-                "Full decode duration is zero, cannot calculate full-response output token throughput"
+                "Full-response ITL is zero, cannot calculate full-response output token throughput"
             )
-        return (osl - 1) / duration  # type: ignore
+        return 1 / converted_itl

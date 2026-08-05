@@ -347,6 +347,31 @@ inter_token_latency_ms = inter_token_latency_ns / 1e6
 - Compare runs at equivalent output lengths, or inspect Decode Duration and Output Sequence Length alongside ITL.
 - Streaming chunks can contain multiple tokens. ITL uses token count, while ICL uses chunk arrival timestamps.
 - Result is in seconds when used for throughput calculations (Output Token Throughput Per User).
+- Assumes the output token count describes the parsed-content interval. If a server reports tokens that its response parser suppresses, use Full-Response Inter Token Latency.
+
+---
+
+### Full-Response Inter Token Latency
+
+**Type:** [Record Metric](#record-metrics)
+
+Measures the average token interval over the full client-observed decode window,
+from the first non-empty parsed content response through explicit HTTP request
+completion.
+
+**Formula:**
+```python
+full_response_inter_token_latency_ns = (
+    full_decode_duration_ns / (output_sequence_length - 1)
+)
+```
+
+**Notes:**
+- Requires an output sequence length of at least 2 tokens and a valid Full Decode Duration.
+- Uses the same token normalization as Inter Token Latency while extending the interval through HTTP response completion.
+- With server-reported token counting, it keeps the duration and token count aligned when a response parser suppresses generated tokens.
+- This remains a client-observed average, not a distribution of raw engine token-to-token timestamps.
+- Streaming chunks can contain multiple tokens. A response delivered entirely in one content chunk may not expose a meaningful post-first-content decode interval.
 
 ---
 
@@ -387,7 +412,7 @@ output_token_throughput_per_user = 1.0 / inter_token_latency_seconds
 - Computes the inverse of ITL to show tokens per second from an individual user's perspective.
 - Differs from Output Token Throughput (aggregate across all concurrent requests) by focusing on single-request experience.
 - Useful for understanding the user experience independent of concurrency effects.
-- Assumes the output token count describes the content-delivery interval. If a server reports tokens that its response parser suppresses, use Full-Response Output Token Throughput Per User for a full-lifecycle rate.
+- Assumes the output token count describes the content-delivery interval. If a server reports tokens that its response parser suppresses, compare it with the full-response metric pair.
 
 ---
 
@@ -401,15 +426,17 @@ window, including time after the final parsed content response.
 **Formula:**
 ```python
 full_response_output_token_throughput_per_user = (
-    output_sequence_length - 1
-) / full_decode_duration_seconds
+    1.0 / full_response_inter_token_latency_seconds
+)
 ```
 
 **Notes:**
+- Computes the inverse of Full-Response Inter Token Latency, mirroring the relationship between Output Token Throughput Per User and Inter Token Latency.
 - Excludes TTFT but measures through full HTTP response completion.
 - With server-reported token counting, this approximates raw engine decode TPS when the response parser suppresses generated tokens.
 - It remains a client-observed approximation because AIPerf does not have raw engine first/last-token timestamps.
-- Compare it with Output Token Throughput Per User to detect a gap between parsed content delivery and full response completion.
+- Aggregate latency percentiles and throughput percentiles are not interchangeable: `1 / p75(latency)` describes the slow tail, while `p75(throughput)` describes the fast side of the reciprocal distribution.
+- Compare the full-response metric pair with the existing metric pair to detect a gap between parsed content delivery and full response completion.
 
 ---
 

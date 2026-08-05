@@ -5,10 +5,9 @@ import pytest
 
 from aiperf.common.exceptions import NoMetricValue
 from aiperf.metrics.metric_dicts import MetricRecordDict
-from aiperf.metrics.types.decode_duration_metric import FullDecodeDurationMetric
-from aiperf.metrics.types.inter_token_latency_metric import InterTokenLatencyMetric
-from aiperf.metrics.types.output_sequence_length_metric import (
-    OutputSequenceLengthMetric,
+from aiperf.metrics.types.inter_token_latency_metric import (
+    FullResponseInterTokenLatencyMetric,
+    InterTokenLatencyMetric,
 )
 from aiperf.metrics.types.output_token_throughput_metrics import (
     FullResponseOutputTokenThroughputPerUserMetric,
@@ -80,12 +79,11 @@ class TestFullResponseOutputTokenThroughputPerUserMetric:
             FullResponseOutputTokenThroughputPerUserMetric.tag
         ] == pytest.approx([182.82228456622666])
 
-    def test_calculates_rate_over_full_decode_duration(self) -> None:
+    def test_calculates_inverse_of_full_response_itl(self) -> None:
         record = create_record()
         metric_dict = MetricRecordDict(
             {
-                FullDecodeDurationMetric.tag: 1_000_000_000,
-                OutputSequenceLengthMetric.tag: 11,
+                FullResponseInterTokenLatencyMetric.tag: 100_000_000,
             }
         )
 
@@ -95,30 +93,15 @@ class TestFullResponseOutputTokenThroughputPerUserMetric:
 
         assert result == 10.0
 
-    def test_requires_at_least_two_tokens(self) -> None:
+    def test_rejects_zero_full_response_itl(self) -> None:
         record = create_record()
         metric_dict = MetricRecordDict(
             {
-                FullDecodeDurationMetric.tag: 1_000_000_000,
-                OutputSequenceLengthMetric.tag: 1,
+                FullResponseInterTokenLatencyMetric.tag: 0,
             }
         )
 
-        with pytest.raises(NoMetricValue, match="at least 2"):
-            FullResponseOutputTokenThroughputPerUserMetric().parse_record(
-                record, metric_dict
-            )
-
-    def test_rejects_zero_duration(self) -> None:
-        record = create_record()
-        metric_dict = MetricRecordDict(
-            {
-                FullDecodeDurationMetric.tag: 0,
-                OutputSequenceLengthMetric.tag: 11,
-            }
-        )
-
-        with pytest.raises(NoMetricValue, match="duration is zero"):
+        with pytest.raises(NoMetricValue, match="ITL is zero"):
             FullResponseOutputTokenThroughputPerUserMetric().parse_record(
                 record, metric_dict
             )
