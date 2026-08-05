@@ -5,11 +5,16 @@ import pytest
 
 from aiperf.common.exceptions import NoMetricValue
 from aiperf.metrics.metric_dicts import MetricRecordDict
+from aiperf.metrics.types.decode_duration_metric import FullDecodeDurationMetric
 from aiperf.metrics.types.inter_token_latency_metric import InterTokenLatencyMetric
+from aiperf.metrics.types.output_sequence_length_metric import (
+    OutputSequenceLengthMetric,
+)
 from aiperf.metrics.types.output_token_throughput_metrics import (
+    FullResponseOutputTokenThroughputPerUserMetric,
     OutputTokenThroughputPerUserMetric,
 )
-from tests.unit.metrics.conftest import create_record
+from tests.unit.metrics.conftest import create_record, run_simple_metrics_pipeline
 
 
 class TestOutputTokenThroughputPerUserMetric:
@@ -49,3 +54,71 @@ class TestOutputTokenThroughputPerUserMetric:
 
         with pytest.raises(NoMetricValue):
             metric.parse_record(record, metric_dict)
+
+
+class TestFullResponseOutputTokenThroughputPerUserMetric:
+    def test_kimi_parser_gap_uses_full_request_end(self) -> None:
+        request_start_ns = 1_000_000_000
+        record = create_record(
+            start_ns=request_start_ns,
+            responses=[1_529_058_811, 1_610_559_573],
+        )
+        record.request.end_perf_ns = request_start_ns + 145_861_451_008
+        assert record.token_counts is not None
+        record.token_counts.output = 26_571
+
+        metric_results = run_simple_metrics_pipeline(
+            [record],
+            OutputTokenThroughputPerUserMetric.tag,
+            FullResponseOutputTokenThroughputPerUserMetric.tag,
+        )
+
+        assert metric_results[OutputTokenThroughputPerUserMetric.tag] == pytest.approx(
+            [326_009.2218524288]
+        )
+        assert metric_results[
+            FullResponseOutputTokenThroughputPerUserMetric.tag
+        ] == pytest.approx([182.82228456622666])
+
+    def test_calculates_rate_over_full_decode_duration(self) -> None:
+        record = create_record()
+        metric_dict = MetricRecordDict(
+            {
+                FullDecodeDurationMetric.tag: 1_000_000_000,
+                OutputSequenceLengthMetric.tag: 11,
+            }
+        )
+
+        result = FullResponseOutputTokenThroughputPerUserMetric().parse_record(
+            record, metric_dict
+        )
+
+        assert result == 10.0
+
+    def test_requires_at_least_two_tokens(self) -> None:
+        record = create_record()
+        metric_dict = MetricRecordDict(
+            {
+                FullDecodeDurationMetric.tag: 1_000_000_000,
+                OutputSequenceLengthMetric.tag: 1,
+            }
+        )
+
+        with pytest.raises(NoMetricValue, match="at least 2"):
+            FullResponseOutputTokenThroughputPerUserMetric().parse_record(
+                record, metric_dict
+            )
+
+    def test_rejects_zero_duration(self) -> None:
+        record = create_record()
+        metric_dict = MetricRecordDict(
+            {
+                FullDecodeDurationMetric.tag: 0,
+                OutputSequenceLengthMetric.tag: 11,
+            }
+        )
+
+        with pytest.raises(NoMetricValue, match="duration is zero"):
+            FullResponseOutputTokenThroughputPerUserMetric().parse_record(
+                record, metric_dict
+            )

@@ -301,6 +301,28 @@ decode_duration_ms = decode_duration_ns / 1e6
 
 ---
 
+### Full Decode Duration
+
+**Type:** [Record Metric](#record-metrics)
+
+Measures the client-observed wall-clock interval from the first non-empty parsed
+content response until the HTTP response is fully consumed. Unlike Decode
+Duration, it includes time after the last parsed content chunk, such as generation
+that a structured-output parser suppresses before the terminal usage response.
+
+**Formula:**
+```python
+full_decode_duration_ns = request.end_perf_ns - first_content_response.perf_ns
+```
+
+**Notes:**
+- This is a client-observed full-response duration, not server kernel execution time.
+- It includes terminal serialization, transport, and client-processing overhead.
+- It requires an explicit request-end timestamp and at least one non-empty content response.
+- Existing profile exports can reconstruct it as `(request_end_ns - request_start_ns) - time_to_first_token_ns`.
+
+---
+
 ### Inter Token Latency (ITL)
 
 **Type:** [Record Metric](#record-metrics)
@@ -365,6 +387,29 @@ output_token_throughput_per_user = 1.0 / inter_token_latency_seconds
 - Computes the inverse of ITL to show tokens per second from an individual user's perspective.
 - Differs from Output Token Throughput (aggregate across all concurrent requests) by focusing on single-request experience.
 - Useful for understanding the user experience independent of concurrency effects.
+- Assumes the output token count describes the content-delivery interval. If a server reports tokens that its response parser suppresses, use Full-Response Output Token Throughput Per User for a full-lifecycle rate.
+
+---
+
+### Full-Response Output Token Throughput Per User
+
+**Type:** [Record Metric](#record-metrics)
+
+Measures a per-request output token rate over the full client-observed decode
+window, including time after the final parsed content response.
+
+**Formula:**
+```python
+full_response_output_token_throughput_per_user = (
+    output_sequence_length - 1
+) / full_decode_duration_seconds
+```
+
+**Notes:**
+- Excludes TTFT but measures through full HTTP response completion.
+- With server-reported token counting, this approximates raw engine decode TPS when the response parser suppresses generated tokens.
+- It remains a client-observed approximation because AIPerf does not have raw engine first/last-token timestamps.
+- Compare it with Output Token Throughput Per User to detect a gap between parsed content delivery and full response completion.
 
 ---
 
@@ -1681,7 +1726,8 @@ total_error_isl = sum(r.error_isl for r in records if not r.valid)
 
 **Type:** [Record Metric](#record-metrics)
 
-Measures the total end-to-end time from sending a request until receiving the final response. For streaming requests with multiple responses, this measures until the last response is received. This is the complete time experienced by the client for a single request.
+Measures the time from request start until the final non-empty parsed content
+response. Usage-only and terminal responses are excluded.
 
 **Formula:**
 ```python
@@ -1689,8 +1735,9 @@ request_latency_ns = request.content_responses[-1].perf_ns - request.start_perf_
 ```
 
 **Notes:**
-- Includes all components: network time, queuing, prompt processing, token generation, and response transmission.
-- For streaming requests, measures from request start to the final chunk received.
+- Includes network time, queuing, prompt processing, and content delivery through the final parsed content chunk.
+- It can be shorter than the HTTP lifecycle when a response parser suppresses generated content or terminal usage arrives later.
+- Use `http_req_duration` for the complete HTTP exchange and Full Decode Duration for the post-TTFT interval through request completion.
 
 ---
 
