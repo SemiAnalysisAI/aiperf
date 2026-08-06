@@ -6,6 +6,7 @@ from aiperf.common.exceptions import NoMetricValue
 from aiperf.common.models import ParsedResponseRecord
 from aiperf.metrics import BaseRecordMetric
 from aiperf.metrics.metric_dicts import MetricRecordDict
+from aiperf.metrics.types.decode_duration_metric import FullDecodeDurationMetric
 from aiperf.metrics.types.output_sequence_length_metric import (
     OutputSequenceLengthMetric,
 )
@@ -53,3 +54,34 @@ class InterTokenLatencyMetric(BaseRecordMetric[float]):
         request_latency = record_metrics.get_or_raise(RequestLatencyMetric)
 
         return (request_latency - ttft) / (osl - 1)  # type: ignore
+
+
+class FullResponseInterTokenLatencyMetric(BaseRecordMetric[float]):
+    """Average token interval through explicit HTTP request completion."""
+
+    tag = "full_response_inter_token_latency"
+    header = "Full-Response Inter Token Latency"
+    short_header = "Full-Response ITL"
+    unit = MetricTimeUnit.NANOSECONDS
+    display_unit = MetricTimeUnit.MILLISECONDS
+    display_order = 410
+    flags = (
+        MetricFlags.STREAMING_TOKENS_ONLY
+        | MetricFlags.PERCENTILE_INCLUDES_FAILED_REQUESTS
+    )
+    required_metrics = {
+        FullDecodeDurationMetric.tag,
+        OutputSequenceLengthMetric.tag,
+    }
+
+    def _parse_record(
+        self,
+        record: ParsedResponseRecord,
+        record_metrics: MetricRecordDict,
+    ) -> float:
+        osl = record_metrics.get_or_raise(OutputSequenceLengthMetric)
+        if osl < 2:  # type: ignore
+            raise NoMetricValue(f"Output sequence length must be at least 2, got {osl}")
+
+        full_decode_duration = record_metrics.get_or_raise(FullDecodeDurationMetric)
+        return full_decode_duration / (osl - 1)  # type: ignore
