@@ -1,6 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
+
 import orjson
 import pytest
 
@@ -20,6 +23,27 @@ def _make_raw_conversation(
     """Create a conversation where every turn has a raw_payload."""
     turns = [Turn(role="user", raw_payload=p) for p in payloads]
     return Conversation(session_id=session_id, turns=turns)
+
+
+class _RacingCursorMmap:
+    """Expose deterministic shared-cursor races while preserving slice reads."""
+
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+        self._position = 0
+        self._seek_barrier = Barrier(2)
+
+    def __getitem__(self, key: slice) -> bytes:
+        return self._data[key]
+
+    def seek(self, offset: int) -> None:
+        self._position = offset
+        self._seek_barrier.wait(timeout=5)
+
+    def read(self, size: int) -> bytes:
+        start = self._position
+        self._position += size
+        return self._data[start : start + size]
 
 
 @pytest.mark.asyncio
@@ -92,6 +116,55 @@ async def test_conversation_format_returns_none_for_payload_bytes(
 
     client.close()
     await store.stop()
+
+
+@pytest.mark.asyncio
+async def test_conversation_mmap_parallel_reads_do_not_share_cursor(
+    tmp_path, monkeypatch
+):
+    """Parallel conversation reads must use independent mmap byte ranges."""
+    monkeypatch.setenv("AIPERF_DATASET_MMAP_BASE_PATH", str(tmp_path))
+
+    store = MemoryMapDatasetBackingStore(benchmark_id="test_parallel_reads")
+    await store.initialize()
+
+    conversations = {
+        "conv-1": _make_raw_conversation(
+            "conv-1", [{"messages": [{"role": "user", "content": "a" * 1024}]}]
+        ),
+        "conv-2": _make_raw_conversation(
+            "conv-2", [{"messages": [{"role": "user", "content": "b" * 2048}]}]
+        ),
+    }
+    await store.add_conversations(conversations)
+    await store.finalize()
+
+    metadata = store.get_client_metadata()
+    client = MemoryMapDatasetClient(
+        metadata.data_file_path,
+        metadata.index_file_path,
+    )
+    original_mmap = client.data_mmap
+    client.data_mmap = _RacingCursorMmap(bytes(original_mmap[:]))
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = {
+                conversation_id: executor.submit(
+                    client.get_conversation, conversation_id
+                )
+                for conversation_id in conversations
+            }
+            loaded = {
+                conversation_id: future.result(timeout=5)
+                for conversation_id, future in futures.items()
+            }
+
+        assert loaded == conversations
+    finally:
+        client.data_mmap = original_mmap
+        client.close()
+        await store.stop()
 
 
 @pytest.mark.asyncio
