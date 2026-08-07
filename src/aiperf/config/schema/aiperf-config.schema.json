@@ -1344,6 +1344,20 @@
                       "description": "AGENTIC_REPLAY only: grace period in seconds the auto-synthesized warmup barrier waits for in-flight priming requests after the warmup burst sends. Read off the profiling phase by ``timing.config._build_agentic_warmup_config`` (the agentic warmup is not a user-declared phase, so it does not inherit ``--warmup-grace-period``, which requires ``--warmup-duration``). None waits indefinitely (the agentic warmup must complete every primed trajectory before profiling starts).",
                       "title": "Agenticwarmupgraceperiod"
                     },
+                    "agenticWarmupConcurrencyRampDuration": {
+                      "anyOf": [
+                        {
+                          "exclusiveMinimum": 0,
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "description": "AGENTIC_REPLAY only: duration in seconds to ramp the auto-synthesized warmup's session concurrency from 1 to the profiling target. Populated by --warmup-concurrency-ramp-duration under an agentic scenario and read by timing.config._build_agentic_warmup_config. The profiling phase itself is unaffected.",
+                      "title": "Agenticwarmupconcurrencyrampduration"
+                    },
                     "adaptive_scale": {
                       "description": "Enable single-run adaptive scale control for this phase. Accepts either a boolean or a nested adaptive-scale configuration block.",
                       "title": "Adaptivescale",
@@ -5214,6 +5228,20 @@
                   "description": "AGENTIC_REPLAY only: grace period in seconds the auto-synthesized warmup barrier waits for in-flight priming requests after the warmup burst sends. Read off the profiling phase by ``timing.config._build_agentic_warmup_config`` (the agentic warmup is not a user-declared phase, so it does not inherit ``--warmup-grace-period``, which requires ``--warmup-duration``). None waits indefinitely (the agentic warmup must complete every primed trajectory before profiling starts).",
                   "title": "Agenticwarmupgraceperiod"
                 },
+                "agenticWarmupConcurrencyRampDuration": {
+                  "anyOf": [
+                    {
+                      "exclusiveMinimum": 0,
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "AGENTIC_REPLAY only: duration in seconds to ramp the auto-synthesized warmup's session concurrency from 1 to the profiling target. Populated by --warmup-concurrency-ramp-duration under an agentic scenario and read by timing.config._build_agentic_warmup_config. The profiling phase itself is unaffected.",
+                  "title": "Agenticwarmupconcurrencyrampduration"
+                },
                 "adaptive_scale": {
                   "description": "Enable single-run adaptive scale control for this phase. Accepts either a boolean or a nested adaptive-scale configuration block.",
                   "title": "Adaptivescale",
@@ -8204,6 +8232,20 @@
                   "default": null,
                   "description": "AGENTIC_REPLAY only: grace period in seconds the auto-synthesized warmup barrier waits for in-flight priming requests after the warmup burst sends. Read off the profiling phase by ``timing.config._build_agentic_warmup_config`` (the agentic warmup is not a user-declared phase, so it does not inherit ``--warmup-grace-period``, which requires ``--warmup-duration``). None waits indefinitely (the agentic warmup must complete every primed trajectory before profiling starts).",
                   "title": "Agenticwarmupgraceperiod"
+                },
+                "agenticWarmupConcurrencyRampDuration": {
+                  "anyOf": [
+                    {
+                      "exclusiveMinimum": 0,
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "AGENTIC_REPLAY only: duration in seconds to ramp the auto-synthesized warmup's session concurrency from 1 to the profiling target. Populated by --warmup-concurrency-ramp-duration under an agentic scenario and read by timing.config._build_agentic_warmup_config. The profiling phase itself is unaffected.",
+                  "title": "Agenticwarmupconcurrencyrampduration"
                 },
                 "adaptive_scale": {
                   "description": "Enable single-run adaptive scale control for this phase. Accepts either a boolean or a nested adaptive-scale configuration block.",
@@ -11637,6 +11679,31 @@
           "default": null,
           "description": "AGENTIC_REPLAY only: grace period in seconds the auto-synthesized warmup barrier waits for in-flight priming requests after the warmup burst sends. Read off the profiling phase by ``timing.config._build_agentic_warmup_config`` (the agentic warmup is not a user-declared phase, so it does not inherit ``--warmup-grace-period``, which requires ``--warmup-duration``). None waits indefinitely (the agentic warmup must complete every primed trajectory before profiling starts).",
           "title": "Agenticwarmupgraceperiod",
+          "x-jinja2-supported": true
+        },
+        "agenticWarmupConcurrencyRampDuration": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\{\\{.*\\}\\}.*",
+              "description": "Jinja2 template (e.g., '{{ variable }}')."
+            },
+            {
+              "type": "string",
+              "pattern": ".*\\$\\{[A-Za-z_][A-Za-z0-9_]*(?::[^}]*)?\\}.*",
+              "description": "Environment variable (e.g., '${VAR}' or '${VAR:default}')."
+            }
+          ],
+          "default": null,
+          "description": "AGENTIC_REPLAY only: duration in seconds to ramp the auto-synthesized warmup's session concurrency from 1 to the profiling target. Populated by --warmup-concurrency-ramp-duration under an agentic scenario and read by timing.config._build_agentic_warmup_config. The profiling phase itself is unaffected.",
+          "title": "Agenticwarmupconcurrencyrampduration",
           "x-jinja2-supported": true
         },
         "adaptive_scale": {

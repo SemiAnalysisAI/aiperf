@@ -2403,7 +2403,9 @@ class CLIConfig(BaseConfig):
         Field(
             gt=0,
             description="Duration in seconds to ramp warmup session concurrency from 1 to target. "
-            "If not set, uses `--concurrency-ramp-duration` value.",
+            "If not set, uses `--concurrency-ramp-duration` value. Under an "
+            "agentic scenario, this paces the auto-synthesized trajectory "
+            "warmup without changing profiling concurrency.",
         ),
         CLIParameter(
             name=("--warmup-concurrency-ramp-duration",),

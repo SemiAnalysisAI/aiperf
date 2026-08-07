@@ -537,6 +537,20 @@ class ConcurrencyPhase(BasePhaseConfig):
         ),
     ]
 
+    agentic_warmup_concurrency_ramp_duration: Annotated[
+        float | None,
+        Field(
+            default=None,
+            gt=0,
+            description="AGENTIC_REPLAY only: duration in seconds to ramp the "
+            "auto-synthesized warmup's session concurrency from 1 to the "
+            "profiling target. Populated by "
+            "--warmup-concurrency-ramp-duration under an agentic scenario and "
+            "read by timing.config._build_agentic_warmup_config. The profiling "
+            "phase itself is unaffected.",
+        ),
+    ]
+
 
 # =============================================================================
 # RATE-CONTROLLED PHASES

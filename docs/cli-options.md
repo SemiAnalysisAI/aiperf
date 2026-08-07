@@ -1169,7 +1169,7 @@ The grace period in seconds to wait for responses after warmup phase ends. Only 
 
 #### `--warmup-concurrency-ramp-duration` `<float>`
 
-Duration in seconds to ramp warmup session concurrency from 1 to target. If not set, uses `--concurrency-ramp-duration` value.
+Duration in seconds to ramp warmup session concurrency from 1 to target. If not set, uses `--concurrency-ramp-duration` value. Under an agentic scenario, this paces the auto-synthesized trajectory warmup without changing profiling concurrency.
 <br/>_Constraints: > 0_
 
 #### `--warmup-prefill-concurrency-ramp-duration` `<float>`
@@ -2704,7 +2704,7 @@ The grace period in seconds to wait for responses after warmup phase ends. Only 
 
 #### `--warmup-concurrency-ramp-duration` `<float>`
 
-Duration in seconds to ramp warmup session concurrency from 1 to target. If not set, uses `--concurrency-ramp-duration` value.
+Duration in seconds to ramp warmup session concurrency from 1 to target. If not set, uses `--concurrency-ramp-duration` value. Under an agentic scenario, this paces the auto-synthesized trajectory warmup without changing profiling concurrency.
 <br/>_Constraints: > 0_
 
 #### `--warmup-prefill-concurrency-ramp-duration` `<float>`

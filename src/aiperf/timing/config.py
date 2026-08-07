@@ -657,6 +657,9 @@ def _build_agentic_warmup_config(phase: PhaseConfig) -> CreditPhaseConfig | None
         arrival_smoothness=getattr(phase, "smoothness", None),
         seamless=False,
         grace_period_sec=grace_period if grace_period is not None else float("inf"),
+        concurrency_ramp_duration_sec=getattr(
+            phase, "agentic_warmup_concurrency_ramp_duration", None
+        ),
         agentic_cache_warmup_duration_sec=cache_warmup_duration,
         warmup_requests_per_lane=requests_per_lane,
     )

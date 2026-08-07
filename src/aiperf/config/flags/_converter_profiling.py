@@ -69,6 +69,14 @@ def _apply_agentic_replay_fields(phase: dict[str, Any], cli: CLIConfig) -> None:
     for attr in _AGENTIC_REPLAY_ROUTES:
         if attr in fields_set:
             phase[attr] = getattr(cli, attr)
+    # AGENTIC_REPLAY replaces user-declared warmup phases with a phase
+    # synthesized from this profiling config. Preserve the existing warmup
+    # ramp flag on that source config so the synthesized phase can consume it
+    # without applying the ramp to profiling itself.
+    if cli.scenario is not None and "warmup_concurrency_ramp_duration" in fields_set:
+        phase["agentic_warmup_concurrency_ramp_duration"] = (
+            cli.warmup_concurrency_ramp_duration
+        )
     # v1 parity: under a --scenario, --warmup-grace-period fed the agentic
     # warmup barrier grace (there was no dedicated flag). Route it onto
     # agentic_warmup_grace_period when the dedicated flag is unset; an

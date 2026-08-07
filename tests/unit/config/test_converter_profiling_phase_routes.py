@@ -318,6 +318,23 @@ class TestAgenticWarmupGracePeriodRouting:
         prof = build_profiling(user)
         assert prof["agentic_warmup_grace_period"] == 0.0
 
+    def test_agentic_warmup_concurrency_ramp_routes_to_synthesized_phase(self):
+        """The agentic scenario synthesizes warmup from the profiling phase,
+        so preserve the warmup-only ramp there without ramping profiling.
+        """
+        loadgen = CLIConfig(
+            scenario="inferencex-agentx-mvp",
+            concurrency=768,
+            benchmark_duration=900,
+            warmup_concurrency_ramp_duration=60.0,
+        )
+        user = _make_user(loadgen=loadgen)
+
+        prof = build_profiling(user)
+
+        assert prof["agentic_warmup_concurrency_ramp_duration"] == 60.0
+        assert "concurrency_ramp" not in prof
+
 
 class TestSystemIdleGapCapRouting:
     def test_system_idle_gap_cap_routes_onto_profiling_phase(self) -> None:

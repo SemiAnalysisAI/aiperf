@@ -393,6 +393,12 @@ multi-turn coding contexts before any measurement starts. When the profiling
 phase begins, every trajectory resumes from `k_i + 1` — and the server's cache
 already holds the prefix.
 
+For a high-concurrency deployment with a narrow request ingress, pass
+`--warmup-concurrency-ramp-duration SECONDS` to open the synthesized warmup's
+session-tree limit gradually from 1 to `--concurrency`. The ramp paces the
+mandatory snapshot primers and any cache-pressure warmup requests; profiling
+still starts directly at the configured concurrency after warmup drains.
+
 The `k_i` values are deterministic given the random seed: same dataset + same
 seed = same trajectories + same start points + same recycle order, on any
 machine. That's why the scenario insists on a seed.

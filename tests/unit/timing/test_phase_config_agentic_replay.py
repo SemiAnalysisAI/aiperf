@@ -67,6 +67,34 @@ def test_warmup_config_total_expected_requests_tracks_concurrency() -> None:
         assert warmup.total_expected_requests == concurrency
 
 
+def test_warmup_config_propagates_agentic_concurrency_ramp() -> None:
+    """The warmup-only CLI ramp reaches the auto-synthesized phase without
+    changing the profiling phase's concurrency schedule.
+    """
+    phase = _PHASE_ADAPTER.validate_python(
+        {
+            "name": "profiling",
+            "type": "concurrency",
+            "concurrency": 768,
+            "duration": 900,
+            "timing_mode": TimingMode.AGENTIC_REPLAY,
+            "agentic_warmup_concurrency_ramp_duration": 60.0,
+        }
+    )
+
+    warmup = _build_agentic_warmup_config(phase)
+    profiling = _build_profiling_config(
+        phase,
+        default_cancellation=RequestCancellationConfig(),
+        phase_index=0,
+        profiling_index=0,
+    )
+
+    assert warmup is not None
+    assert warmup.concurrency_ramp_duration_sec == 60.0
+    assert profiling.concurrency_ramp_duration_sec is None
+
+
 def test_warmup_grace_defaults_to_infinity() -> None:
     """With no ``agentic_warmup_grace_period`` set, the warmup barrier waits indefinitely (inf) until every primed trajectory returns."""
     phase = _ar_profiling_phase()
