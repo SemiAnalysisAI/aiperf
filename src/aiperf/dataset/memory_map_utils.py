@@ -780,8 +780,15 @@ class MemoryMapDatasetClient:
         offset_info = self.index.offsets[conversation_id]
 
         try:
-            self.data_mmap.seek(offset_info.offset)
-            conv_bytes = self.data_mmap.read(offset_info.size)
+            # ``get_conversation`` runs in an executor and one client can serve
+            # many worker threads concurrently.  mmap.seek()/read() mutate a
+            # shared file position, so concurrent reads can splice bytes from
+            # different conversations.  An offset slice is position-independent.
+            conv_bytes = bytes(
+                self.data_mmap[
+                    offset_info.offset : offset_info.offset + offset_info.size
+                ]
+            )
 
             _logger.debug(
                 lambda: f"Loading conversation '{conversation_id}': offset={offset_info.offset}, size={offset_info.size} bytes"

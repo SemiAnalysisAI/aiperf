@@ -1,6 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
+
 import orjson
 import pytest
 
@@ -92,6 +95,67 @@ async def test_conversation_format_returns_none_for_payload_bytes(
 
     client.close()
     await store.stop()
+
+
+@pytest.mark.asyncio
+async def test_conversation_reads_do_not_share_mmap_position(tmp_path, monkeypatch):
+    """Concurrent conversation reads must use position-independent mmap slices."""
+    monkeypatch.setenv("AIPERF_DATASET_MMAP_BASE_PATH", str(tmp_path))
+
+    store = MemoryMapDatasetBackingStore(benchmark_id="test_concurrent_reads")
+    await store.initialize()
+    for conversation_id in ("conv-1", "conv-2"):
+        await store.add_conversation(
+            conversation_id,
+            Conversation(
+                session_id=conversation_id,
+                turns=[Turn(role="user", text=conversation_id * 4096)],
+            ),
+        )
+    await store.finalize()
+
+    metadata = store.get_client_metadata()
+    client = MemoryMapDatasetClient(
+        metadata.data_file_path,
+        metadata.index_file_path,
+    )
+    original_mmap = client.data_mmap
+    data = original_mmap[:]
+    barrier = Barrier(2)
+
+    class RacingMmap:
+        """Make shared seek/read positioning deterministically unsafe."""
+
+        def __init__(self) -> None:
+            self.position = 0
+
+        def __getitem__(self, key):
+            return data[key]
+
+        def seek(self, offset: int) -> None:
+            self.position = offset
+            barrier.wait()
+
+        def read(self, size: int) -> bytes:
+            start = self.position
+            self.position += size
+            return data[start : start + size]
+
+    client.data_mmap = RacingMmap()
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [
+                executor.submit(client.get_conversation, conversation_id)
+                for conversation_id in ("conv-1", "conv-2")
+            ]
+            assert [future.result().session_id for future in futures] == [
+                "conv-1",
+                "conv-2",
+            ]
+    finally:
+        client.data_mmap = original_mmap
+        client.close()
+        await store.stop()
 
 
 @pytest.mark.asyncio
