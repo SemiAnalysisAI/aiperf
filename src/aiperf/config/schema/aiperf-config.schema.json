@@ -13013,6 +13013,12 @@
           "title": "Streaming",
           "type": "boolean"
         },
+        "allowEmptyContent": {
+          "default": false,
+          "description": "Retain explicitly empty content or reasoning strings as timed responses for streaming OpenAI Chat Completions. This changes the shared response timeline without adding output tokens.",
+          "title": "Allowemptycontent",
+          "type": "boolean"
+        },
         "transport": {
           "anyOf": [
             {

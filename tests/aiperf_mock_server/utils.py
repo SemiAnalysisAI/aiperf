@@ -497,6 +497,22 @@ async def stream_chat_completion(
     has_reasoning = bool(ctx.reasoning_content_tokens)
 
     try:
+        if server_config.emit_empty_chat_content:
+            yield _sse(
+                {
+                    "id": ctx.request_id,
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": ctx.model,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"role": "assistant", "content": ""},
+                        }
+                    ],
+                }
+            )
+
         # Stream reasoning tokens first (if any)
         for token in ctx.reasoning_content_tokens:
             await ctx.latency_sim.wait_for_next_token()
